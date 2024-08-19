@@ -23,7 +23,7 @@ def create_gif(image_folder, gif_path, duration=5):
     imageio.mimsave(gif_path, images, duration=duration)
 
 def load_data():
-    data = np.load(f"data/lego_200x200.npz")
+    data = np.load(f"./tiny_nerf_data.npz")
 
     # Training images: [100, 200, 200, 3]
     images_train = data["images_train"] / 255.0
