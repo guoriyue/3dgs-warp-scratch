@@ -1,6 +1,6 @@
 batch_size: 16000
 half_res: True 
-loadpath: ./models/Three_Images/1724048402.7298362.pth
+loadpath: ./models/Three_Images/1724048710.9041233.pth
 datapath: ./data/nerf_synthetic/lego
 savepath: ./results/lego
 exp_name: mynerf_25_imgs
