@@ -1,32 +1,78 @@
-from wp_utils.wp_kernels import *
+import warp as wp
+import numpy as np
 
-def wp_arange_py(n):
-    output = wp.zeros(n, dtype=WP_INT)
-    wp.launch(kernel=wp_arange, dim=(n,), inputs=[output])
+# half precision
+WP_FLOAT16 = wp.float16
+# originally using bf16 but warp only supports float16 for now
+WP_FLOAT32 = wp.float32
+
+WP_INT = wp.int32
+WP_VEC2 = wp.vec2
+WP_VEC2H = wp.vec2h
+
+DEVICE = "cuda:0"  # "cpu"
+
+# Initialize Warp
+wp.init()
+
+def wp_arange(n):
+    dtype = WP_INT
+    output = wp.zeros(n, dtype=dtype)
+    @wp.kernel
+    def kernel_func(output: wp.array(dtype=dtype)):
+        i = wp.tid()
+        output[i] = i
+    wp.launch(kernel_func, dim=(n,), inputs=[output])
     return output
 
-
-def wp_add_1d_scalar_int32_py(a, b):
-    output = wp.zeros(a.shape, dtype=WP_INT)
+def wp_add_1d_scalar(a, b):
+    dtype = a.dtype
+    output = wp.zeros(a.shape, dtype=dtype)
     wp_b = wp.int32(b)
-    wp.launch(kernel=wp_add_1d_scalar_int32, dim=a.shape, inputs=[a, wp_b, output])
+    @wp.kernel
+    def kernel_func(a: wp.array(dtype=dtype), b: wp.int32, output: wp.array(dtype=dtype)):
+        i = wp.tid()
+        output[i] = a[i] + b
+    wp.launch(kernel=kernel_func, dim=a.shape, inputs=[a, wp_b, output])
     return output
 
-def wp_meshgrid_py(x, y):
-    xx = wp.zeros((x.shape[0], y.shape[0]), dtype=WP_FLOAT32)
-    yy = wp.zeros((x.shape[0], y.shape[0]), dtype=WP_FLOAT32)
-    wp.launch(kernel=wp_meshgrid, dim=(x.shape[0], y.shape[0]), inputs=[x, y, xx, yy])
+def wp_meshgrid(x, y):
+    dtype = x.dtype
+    xx = wp.zeros((x.shape[0], y.shape[0]), dtype=dtype)
+    yy = wp.zeros((x.shape[0], y.shape[0]), dtype=dtype)
+
+    @wp.kernel
+    def kernel_func(x: wp.array(dtype=dtype), y: wp.array(dtype=dtype), xx: wp.array2d(dtype=dtype), yy: wp.array2d(dtype=dtype)):
+        i, j = wp.tid()
+        xx[i, j] = x[i]
+        yy[i, j] = y[j]
+    
+    wp.launch(kernel=kernel_func, dim=(x.shape[0], y.shape[0]), inputs=[x, y, xx, yy])
     return xx, yy
 
-def wp_mul_scalar_py(a, b):
-    output = wp.zeros(a.shape, dtype=WP_FLOAT32)
-    wp_b = wp.float32(b)
-    wp.launch(kernel=wp_mul_1d_scalar, dim=a.shape, inputs=[a, wp_b, output])
+def wp_dot_prod_2d_scalar(a: wp.array2d, scalar):
+    dtype = a.dtype
+    output = wp.zeros(a.shape, dtype=dtype)
+
+    @wp.kernel
+    def kernel_func(a: wp.array2d(dtype=dtype), scalar: dtype, output: wp.array2d(dtype=dtype)):
+        i, j = wp.tid()
+        output[i, j] = a[i, j] * scalar
+
+    wp.launch(kernel_func, dim=a.shape, inputs=[a, scalar, output])
     return output
 
-def wp_stack_py(to_stack):
+def wp_stack(to_stack):
     head = len(to_stack)
-    stack_tensor = wp.array2d(to_stack[0], dtype=WP_FLOAT32)
-    output = wp.zeros((stack_tensor.shape[0], stack_tensor.shape[1]*head), dtype=WP_FLOAT32)
-    wp.launch(kernel=wp_stack, dim=(stack_tensor.shape[0], stack_tensor.shape[1]), inputs=[head, stack_tensor, output])
+    if head == 0:
+        print("Nothing to stack")
+        return None
+    dtype = to_stack[0].dtype
+    stack_tensor = wp.array2d(to_stack[0], dtype=dtype)
+    output = wp.zeros((stack_tensor.shape[0], stack_tensor.shape[1]*head), dtype=dtype)
+    @wp.kernel
+    def kernel_func(head: WP_INT, stack_tensor: wp.array2d(dtype=dtype), output: wp.array2d(dtype=dtype)):
+        i, j = wp.tid()
+        output[i, j + head * stack_tensor.shape[1]] = stack_tensor[i, j]
+    wp.launch(kernel=kernel_func, dim=(stack_tensor.shape[0], stack_tensor.shape[1]), inputs=[head, stack_tensor, output])
     return output

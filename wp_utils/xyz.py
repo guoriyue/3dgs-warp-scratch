@@ -48,23 +48,24 @@ def wp_rays_single_cam(cam_params):
 	# torch.Size([400, 400]) torch.Size([400, 400])
 	# torch.Size([3, 400, 400])
 
-	H , W, f  = cam_params
+	H, W, f  = cam_params
 	Hl = torch.arange(H) - H//2
 	Wl = torch.arange(W) - W//2
-	wp_Hl = wp_arange_py(H)
-	wp_Hl = wp_add_1d_scalar_int32_py(wp_Hl, -H//2)
-	wp_Wl = wp_arange_py(W)
-	wp_Wl = wp_add_1d_scalar_int32_py(wp_Wl, -W//2)
+	wp_Hl = wp_arange(H)
+	wp_Hl = wp_add_1d_scalar(wp_Hl, -H//2)
+	wp_Wl = wp_arange(W)
+	wp_Wl = wp_add_1d_scalar(wp_Wl, -W//2)
 	grid_x, grid_y = torch.meshgrid(Wl, Hl)
 
 	wp_Wl = wp.array(wp_Wl, dtype=WP_FLOAT32)
 	wp_Hl = wp.array(wp_Hl, dtype=WP_FLOAT32)
-	wp_grid_x, wp_grid_y = wp_meshgrid_py(wp_Wl, wp_Hl)
+	wp_grid_x, wp_grid_y = wp_meshgrid(wp_Wl, wp_Hl)
 	# print(grid_x.shape, grid_y.shape)
-	to_stack = [wp_grid_x, wp_grid_y, wp_mul_scalar_py(wp.ones_like(wp_grid_x), -1)]
-	rays = wp_stack_py(to_stack)
-	
+	to_stack = [wp_grid_x, wp_grid_y, wp_dot_prod_2d_scalar(wp.ones_like(wp_grid_x), -1)]
+	wp_rays = wp_stack(to_stack)
+	print(wp.to_torch(wp_rays).cpu())
 	rays = torch.stack((grid_x/f, -grid_y/f, -1*torch.ones_like(grid_x))).float()
+	print(rays)
 	# print(rays.shape)
 	rays = rays.permute(0,2,1)
 	rays = torch.reshape(rays, (3,-1)) # 640K ray directions (if H,W = 800)

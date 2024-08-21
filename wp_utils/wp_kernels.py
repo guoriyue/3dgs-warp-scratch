@@ -123,15 +123,20 @@ def wp_add_1d_scalar_int32(tensor: wp.array(dtype=WP_INT), scalar: WP_INT, outpu
     output[i] = tensor[i] + scalar
 
 @wp.kernel
-def wp_mul_2d(a: wp.array2d(dtype=WP_FLOAT32), b: wp.array2d(dtype=WP_FLOAT32), output: wp.array2d(dtype=WP_FLOAT32)):
+def wp_dot_prod_2d(a: wp.array2d(dtype=WP_FLOAT32), b: wp.array2d(dtype=WP_FLOAT32), output: wp.array2d(dtype=WP_FLOAT32)):
     i, j = wp.tid()
     output[i, j] = a[i, j] * b[i, j]
 
 @wp.kernel
-def wp_mul_1d_scalar(a: wp.array(dtype=WP_FLOAT32), scalar: WP_FLOAT32, output: wp.array(dtype=WP_FLOAT32)):
+def wp_dot_prod_1d_scalar(a: wp.array(dtype=WP_FLOAT32), scalar: WP_FLOAT32, output: wp.array(dtype=WP_FLOAT32)):
     i = wp.tid()
     output[i] = a[i] * scalar
-    
+
+@wp.kernel
+def wp_dot_prod_2d_scalar(a: wp.array2d(dtype=WP_FLOAT32), scalar: WP_FLOAT32, output: wp.array2d(dtype=WP_FLOAT32)):
+    i, j = wp.tid()
+    output[i, j] = a[i, j] * scalar
+
 @wp.kernel
 def wp_stack(head: WP_INT, stack_tensor: wp.array2d(dtype=WP_FLOAT32), output: wp.array2d(dtype=WP_FLOAT32)):
     i, j = wp.tid()
