@@ -2,12 +2,10 @@ import os
 import time
 import cv2 
 import numpy as np
-from utils.dataload import load_data, RayGenerator
+from wp_utils.dataload import load_data, WpRayGenerator
 from torch.utils.tensorboard import SummaryWriter
 import torch
 # only use torch writer and save
-# from utils.nets import WpNerf
-# from utils.xyz import * 
 from utils.rendering import *
 import argparse 
 import yaml 
@@ -28,7 +26,7 @@ def train(params):
         os.makedirs(os.path.join(params['savepath'], params['exp_name']))
     writer = SummaryWriter('logs/run_{}/'.format(str(time.time())[-10:]))
     batch_size = params['batch_size']
-    rg = RayGenerator(params['datapath'], params['half_res'], params['num_train_imgs'])
+    rg = WpRayGenerator(params['datapath'], params['half_res'], params['num_train_imgs'])
     train_imgs = torch.stack([torch.from_numpy(s['img']) for s in rg.samples['train']]).reshape(-1,3)
     # train_imgs_list = []
     # for s in rg.samples['train']:

@@ -4,10 +4,10 @@ import glob
 import json
 import cv2
 import re 
-# import torch
+import torch
 import warp as wp
 from natsort import natsort_keygen, ns
-from utils.xyz import rays_single_cam
+from wp_utils.xyz import wp_rays_single_cam
 
 
 def load_data(path, half_res=True, num_imgs=-1):
@@ -66,7 +66,8 @@ def load_data(path, half_res=True, num_imgs=-1):
 	for i in range(num_train):
 		train_img = cv2.cvtColor(cv2.imread(train_img_paths[i]), cv2.COLOR_BGR2RGB) / 255.0
 		metadata = train_transform['frames'][i]
-		transform = torch.from_numpy(np.array(metadata['transform_matrix'])).float()
+		# transform = torch.from_numpy(np.array(metadata['transform_matrix'])).float()
+		transform = wp.from_numpy(np.array(metadata['transform_matrix']))
 		if half_res:
 			H,W = train_img.shape[:2]
 			train_img = cv2.resize(train_img, (W//2 , H//2 ), interpolation=cv2.INTER_AREA)
@@ -77,7 +78,8 @@ def load_data(path, half_res=True, num_imgs=-1):
 	for i in range(num_val):
 		val_img = cv2.cvtColor(cv2.imread(val_img_paths[i]), cv2.COLOR_BGR2RGB) / 255.0
 		metadata = val_transform['frames'][i]
-		transform = torch.from_numpy(np.array(metadata['transform_matrix'])).float()
+		# transform = torch.from_numpy(np.array(metadata['transform_matrix'])).float()
+		transform = wp.from_numpy(np.array(metadata['transform_matrix']))
 		if half_res:
 			H,W = val_img.shape[:2]
 			val_img = cv2.resize(val_img, (W//2, H//2), interpolation=cv2.INTER_AREA)
@@ -91,7 +93,8 @@ def load_data(path, half_res=True, num_imgs=-1):
 		img_depth = cv2.cvtColor(cv2.imread(test_depth_paths[i]), cv2.COLOR_BGR2RGB) / 255.0
 		img_normal = cv2.cvtColor(cv2.imread(test_normal_paths[i]), cv2.COLOR_BGR2RGB) / 255.0
 		metadata = test_transform['frames'][i]
-		transform = torch.from_numpy(np.array(metadata['transform_matrix'])).float()
+		# transform = torch.from_numpy(np.array(metadata['transform_matrix'])).float()
+		transform = wp.from_numpy(np.array(metadata['transform_matrix']))
 		if half_res:
 			H,W = img.shape[:2]
 			img = cv2.resize(img, (W//2 ,H//2), interpolation=cv2.INTER_AREA)
@@ -115,7 +118,7 @@ def load_data(path, half_res=True, num_imgs=-1):
 def rays_dataset(samples, cam_params):
 	""" Generates rays and camera origins for train test and val sets under diff camera poses""" 
 	keys = ['train', 'test', 'val']
-	rays_1_cam = rays_single_cam(cam_params)
+	rays_1_cam = wp_rays_single_cam(cam_params)
 	rays = {}
 	cam_origins = {}
 	H, W, f = cam_params
@@ -129,9 +132,11 @@ def rays_dataset(samples, cam_params):
 
 	return rays
 
-class RayGenerator:
+class WpRayGenerator:
 	def __init__(self, path, half_res=True, num_imgs=-1):
 		samples, cam_params = load_data(path, half_res, num_imgs)
+		print("samples loaded", samples)
+		print("cam_params loaded", cam_params)
 		self.samples = samples
 		self.cam_params = cam_params
 		self.H = cam_params[0]

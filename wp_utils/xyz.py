@@ -1,8 +1,9 @@
 import cv2
 import numpy as np
-# import torch
+import torch
 import warp as wp
 import warnings
+from wp_utils.wp_funcs import *
 
 def gamma(x, L=4):	
 	assert torch.is_tensor(x), "input needs to be a torch tensor"
@@ -36,18 +37,35 @@ def positional_encoder(vec, Lp=10, Ld=4):
 
 	return posx, posd
 
-def rays_single_cam(cam_params):
+def wp_rays_single_cam(cam_params):
 	""" takes in camera params H,W,f returns H*W ray directions with origin 0,0,0
 	Args:
 		cam_params (list): [H, W, f]
 	Returns:
 		rays (torch Tensor): 3 x HW
 	"""
+
+	# torch.Size([400, 400]) torch.Size([400, 400])
+	# torch.Size([3, 400, 400])
+
 	H , W, f  = cam_params
 	Hl = torch.arange(H) - H//2
 	Wl = torch.arange(W) - W//2
+	wp_Hl = wp_arange_py(H)
+	wp_Hl = wp_add_1d_scalar_int32_py(wp_Hl, -H//2)
+	wp_Wl = wp_arange_py(W)
+	wp_Wl = wp_add_1d_scalar_int32_py(wp_Wl, -W//2)
 	grid_x, grid_y = torch.meshgrid(Wl, Hl)
+
+	wp_Wl = wp.array(wp_Wl, dtype=WP_FLOAT32)
+	wp_Hl = wp.array(wp_Hl, dtype=WP_FLOAT32)
+	wp_grid_x, wp_grid_y = wp_meshgrid_py(wp_Wl, wp_Hl)
+	# print(grid_x.shape, grid_y.shape)
+	to_stack = [wp_grid_x, wp_grid_y, wp_mul_scalar_py(wp.ones_like(wp_grid_x), -1)]
+	rays = wp_stack_py(to_stack)
+	
 	rays = torch.stack((grid_x/f, -grid_y/f, -1*torch.ones_like(grid_x))).float()
+	# print(rays.shape)
 	rays = rays.permute(0,2,1)
 	rays = torch.reshape(rays, (3,-1)) # 640K ray directions (if H,W = 800)
 	return rays
