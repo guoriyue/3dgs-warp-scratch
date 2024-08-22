@@ -135,8 +135,6 @@ def rays_dataset(samples, cam_params):
 class WpRayGenerator:
 	def __init__(self, path, half_res=True, num_imgs=-1):
 		samples, cam_params = load_data(path, half_res, num_imgs)
-		print("samples loaded", samples)
-		print("cam_params loaded", cam_params)
 		self.samples = samples
 		self.cam_params = cam_params
 		self.H = cam_params[0]

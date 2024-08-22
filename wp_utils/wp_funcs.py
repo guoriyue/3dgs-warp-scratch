@@ -50,6 +50,17 @@ def wp_meshgrid(x, y):
     wp.launch(kernel=kernel_func, dim=(x.shape[0], y.shape[0]), inputs=[x, y, xx, yy])
     return xx, yy
 
+def wp_to_float32_2d(a):
+    output = wp.zeros(a.shape, dtype=WP_FLOAT32)
+
+    @wp.kernel
+    def kernel_func(a: wp.array2d(dtype=a.dtype), output: wp.array2d(dtype=WP_FLOAT32)):
+        i, j = wp.tid()
+        output[i, j] = wp.float32(a[i, j])
+    
+    wp.launch(kernel=kernel_func, dim=a.shape, inputs=[a, output])
+    return output
+
 def wp_dot_prod_2d_scalar(a: wp.array2d, scalar):
     dtype = a.dtype
     output = wp.zeros(a.shape, dtype=dtype)
@@ -62,17 +73,21 @@ def wp_dot_prod_2d_scalar(a: wp.array2d, scalar):
     wp.launch(kernel_func, dim=a.shape, inputs=[a, scalar, output])
     return output
 
-def wp_stack(to_stack):
+def wp_stack_2d(to_stack):
     head = len(to_stack)
     if head == 0:
         print("Nothing to stack")
         return None
+    
     dtype = to_stack[0].dtype
-    stack_tensor = wp.array2d(to_stack[0], dtype=dtype)
-    output = wp.zeros((stack_tensor.shape[0], stack_tensor.shape[1]*head), dtype=dtype)
+    output = wp.zeros((head, to_stack[0].shape[0], to_stack[0].shape[1]), dtype=dtype)
+    
     @wp.kernel
-    def kernel_func(head: WP_INT, stack_tensor: wp.array2d(dtype=dtype), output: wp.array2d(dtype=dtype)):
+    def kernel_func(head: WP_INT, stack_tensor: wp.array2d(dtype=dtype), output: wp.array3d(dtype=dtype)):
         i, j = wp.tid()
-        output[i, j + head * stack_tensor.shape[1]] = stack_tensor[i, j]
-    wp.launch(kernel=kernel_func, dim=(stack_tensor.shape[0], stack_tensor.shape[1]), inputs=[head, stack_tensor, output])
+        output[head, i, j] = stack_tensor[i, j]
+
+    for h in range(head):
+        wp.launch(kernel_func, dim=(to_stack[h].shape[0], to_stack[h].shape[1]), inputs=[h, to_stack[h], output])
+    
     return output

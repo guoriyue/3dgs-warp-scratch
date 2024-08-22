@@ -60,13 +60,29 @@ def wp_rays_single_cam(cam_params):
 	wp_Wl = wp.array(wp_Wl, dtype=WP_FLOAT32)
 	wp_Hl = wp.array(wp_Hl, dtype=WP_FLOAT32)
 	wp_grid_x, wp_grid_y = wp_meshgrid(wp_Wl, wp_Hl)
-	# print(grid_x.shape, grid_y.shape)
-	to_stack = [wp_grid_x, wp_grid_y, wp_dot_prod_2d_scalar(wp.ones_like(wp_grid_x), -1)]
-	wp_rays = wp_stack(to_stack)
-	print(wp.to_torch(wp_rays).cpu())
+
+	
+
+	wp_grid_x = wp_to_float32_2d(wp_grid_x)
+	wp_grid_y = wp_to_float32_2d(wp_grid_y)
+
+	to_stack = [wp_dot_prod_2d_scalar(wp_grid_x, 1.0/f), wp_dot_prod_2d_scalar(wp_grid_y, 1.0/f), wp_dot_prod_2d_scalar(wp.ones_like(wp_grid_x), -1)]
+
+	assert torch.allclose(grid_x/f, wp.to_torch(to_stack[0]).cpu(), atol=1e-5), "grid_x not equal"
+	assert torch.allclose(grid_y/f, wp.to_torch(to_stack[1]).cpu(), atol=1e-5), "grid_y not equal"
+	assert torch.allclose((-1)*torch.ones_like(grid_x).to(torch.float32), wp.to_torch(to_stack[2]).cpu(), atol=1e-5), "ones not equal"
+	
+	wp_rays = wp_stack_2d(to_stack)
+	
 	rays = torch.stack((grid_x/f, -grid_y/f, -1*torch.ones_like(grid_x))).float()
+
 	print(rays)
-	# print(rays.shape)
+	print(wp.to_torch(wp_rays))
+	delta = rays - wp.to_torch(wp_rays).cpu()
+	# find all delta values that are not zero
+
+	assert torch.allclose(rays, wp.to_torch(wp_rays).cpu(), atol=1e-5), "rays not equal"
+
 	rays = rays.permute(0,2,1)
 	rays = torch.reshape(rays, (3,-1)) # 640K ray directions (if H,W = 800)
 	return rays
