@@ -91,3 +91,30 @@ def wp_stack_2d(to_stack):
         wp.launch(kernel_func, dim=(to_stack[h].shape[0], to_stack[h].shape[1]), inputs=[h, to_stack[h], output])
     
     return output
+
+
+
+def wp_permute_3d(a, perm):
+    dtype = a.dtype
+    perm_shape = [a.shape[i] for i in perm]
+    numel = int(np.prod(perm_shape))
+    output = wp.zeros(perm_shape, dtype=dtype)
+
+    perm = wp.array(perm, dtype=WP_INT)
+
+    @wp.kernel
+    def kernel_func(input_tensor: wp.array3d(dtype=float), output_tensor: wp.array3d(dtype=float)):
+        i = wp.tid()  # Global thread index
+        d1, d2, d3 = input_tensor.shape
+
+        d1_idx = i // (d2 * d3)
+        d23_idx = i % (d2 * d3)
+        d2_idx = d23_idx // d3
+        d3_idx = d23_idx % d3
+
+        output_tensor[d1_idx, d3_idx, d2_idx] = input_tensor[d1_idx, d2_idx, d3_idx]
+        
+
+    wp.launch(kernel_func, dim=numel, inputs=[a, output])
+
+    return output
