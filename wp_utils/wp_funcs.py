@@ -100,21 +100,24 @@ def wp_permute_3d(a, perm):
     numel = int(np.prod(perm_shape))
     output = wp.zeros(perm_shape, dtype=dtype)
 
-    perm = wp.array(perm, dtype=WP_INT)
+    perm_order = wp.vec3(perm)
 
     @wp.kernel
-    def kernel_func(input_tensor: wp.array3d(dtype=float), output_tensor: wp.array3d(dtype=float)):
-        i = wp.tid()  # Global thread index
-        d1, d2, d3 = input_tensor.shape
+    def kernel_func(input_tensor: wp.array3d(dtype=float), perm_order: wp.vec3, output_tensor: wp.array3d(dtype=float)):
+        i, j, k = wp.tid()  # Global thread index
+        if perm_order == wp.vec3(0.0, 1.0, 2.0):
+            output_tensor[i][j][k] = input_tensor[i][j][k]
+        elif perm_order == wp.vec3(0.0, 2.0, 1.0):
+            output_tensor[i][k][j] = input_tensor[i][j][k]
+        elif perm_order == wp.vec3(1.0, 0.0, 2.0):
+            output_tensor[j][i][k] = input_tensor[i][j][k]
+        elif perm_order == wp.vec3(1.0, 2.0, 0.0):
+            output_tensor[j][k][i] = input_tensor[i][j][k]
+        elif perm_order == wp.vec3(2.0, 0.0, 1.0):
+            output_tensor[k][i][j] = input_tensor[i][j][k]
+        elif perm_order == wp.vec3(2.0, 1.0, 0.0):
+            output_tensor[k][j][i] = input_tensor[i][j][k]
 
-        d1_idx = i // (d2 * d3)
-        d23_idx = i % (d2 * d3)
-        d2_idx = d23_idx // d3
-        d3_idx = d23_idx % d3
-
-        output_tensor[d1_idx, d3_idx, d2_idx] = input_tensor[d1_idx, d2_idx, d3_idx]
-        
-
-    wp.launch(kernel_func, dim=numel, inputs=[a, output])
+    wp.launch(kernel_func, dim=(a.shape[0], a.shape[1], a.shape[2]), inputs=[a, perm_order, output])
 
     return output

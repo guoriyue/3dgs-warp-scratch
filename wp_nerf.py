@@ -16,11 +16,6 @@ from warp.optim import Adam
 WP_INT = wp.int32
 WP_FLOAT32 = wp.float32
 
-@wp.kernel
-def wp_stack(head: WP_INT, stack_tensor: wp.array2d(dtype=WP_FLOAT32), output: wp.array2d(dtype=WP_FLOAT32)):
-    i, j = wp.tid()
-    output[i, j + head * stack_tensor.shape[1]] = stack_tensor[i, j]
-
 def train(params):
     if not os.path.exists(os.path.join(params['savepath'], params['exp_name'])):
         os.makedirs(os.path.join(params['savepath'], params['exp_name']))

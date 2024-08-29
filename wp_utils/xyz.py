@@ -75,13 +75,12 @@ def wp_rays_single_cam(cam_params):
 	assert torch.allclose(rays, wp.to_torch(wp_rays).cpu(), atol=1e-5), "rays not equal"
 
 	rays = rays.permute(0,2,1)
-	print(rays)
-	rays = torch.reshape(rays, (3,-1)) # 640K ray directions (if H,W = 800)
+	rays = torch.reshape(rays, (3, -1)) # 640K ray directions (if H,W = 800)
 
 	wp_rays = wp_permute_3d(wp_rays, [0,2,1])
-	print(wp.to_torch(wp_rays))
-	wp_rays = wp_rays.reshape(-1, 3)
-	return rays
+	wp_rays = wp.array.reshape(wp_rays, (3, -1))
+	assert torch.allclose(rays, wp.to_torch(wp_rays).cpu(), atol=1e-5), "rays not equal"
+	return rays, wp_rays
 
 
 def polar_to_mat(theta):

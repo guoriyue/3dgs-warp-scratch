@@ -8,7 +8,7 @@ import torch
 import warp as wp
 from natsort import natsort_keygen, ns
 from wp_utils.xyz import wp_rays_single_cam
-
+from wp_utils.wp_funcs import *
 
 def load_data(path, half_res=True, num_imgs=-1):
 	"""
@@ -118,13 +118,17 @@ def load_data(path, half_res=True, num_imgs=-1):
 def rays_dataset(samples, cam_params):
 	""" Generates rays and camera origins for train test and val sets under diff camera poses""" 
 	keys = ['train', 'test', 'val']
-	rays_1_cam = wp_rays_single_cam(cam_params)
+	rays_1_cam, wp_rays_1_cam = wp_rays_single_cam(cam_params)
 	rays = {}
 	cam_origins = {}
 	H, W, f = cam_params
 	for k in keys:
 		num_images = len(samples[k])
+		print("s", samples[k][0])
 		transf_mats = torch.stack([s['transform'] for s in samples[k]])
+		wp_s_transforms = [wp.from_numpy(s['transform']) for s in samples[k]]
+		wp_transf_mats = wp_stack_2d(wp_s_transforms)
+		assert torch.allclose(transf_mats, wp.to_torch(wp_transf_mats).cpu(), atol=1e-5), "transform matrices not equal"
 		rays_dataset =  torch.matmul(transf_mats[:,:3,:3], rays_1_cam)
 		cam_origins = transf_mats[:,:3,3:]
 		cam_origins = cam_origins.expand(num_images,3,H*W) #Bx3xHW
