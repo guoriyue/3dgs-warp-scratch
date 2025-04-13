@@ -57,15 +57,16 @@ def computeCov3D(scale, mod, rot):
     S = np.array(
         [[scale[0] * mod, 0, 0], [0, scale[1] * mod, 0], [0, 0, scale[2] * mod]]
     )
-
+    print(S)
     # normalize quaternion to get valid rotation
     # we use rotation matrix
     R = rot
-
+    print(R)
     # compute 3d world covariance matrix Sigma
     M = np.dot(R, S)
+    print(M)
     cov3D = np.dot(M, M.T)
-
+    print(cov3D)
     return cov3D
 
 

@@ -73,11 +73,70 @@ class Rasterizer:
             tan_fovx,
             tan_fovy,
         )
+        
 
         # produce [depth] key and corresponding guassian indices
         # sort indices by depth
         depths = preprocessed["depths"]
         point_list = np.argsort(depths)
+        
+        # Print preprocessed data in a more readable format
+        print("\n" + "="*80)
+        print(" "*30 + "PREPROCESSED DATA SUMMARY")
+        print("="*80)
+        
+        print(f"\nImage dimensions: {width} x {height}")
+        print(f"Number of Gaussians: {len(point_list)}")
+        print(f"Background color: {background}")
+        
+        print("\n" + "-"*40)
+        print("Point list (sorted by depth):")
+        print("-"*40)
+        print(point_list)
+        
+        print("\n" + "-"*40)
+        print("2D Points in image space (first 3):")
+        print("-"*40)
+        if len(preprocessed["points_xy_image"]) > 0:
+            for i in range(min(3, len(preprocessed["points_xy_image"]))):
+                print(f"  Point {i}: {preprocessed['points_xy_image'][i]}")
+        else:
+            print("  No points available")
+        
+        print("\n" + "-"*40)
+        print("RGB values (first 3):")
+        print("-"*40)
+        if len(preprocessed["rgbs"]) > 0:
+            for i in range(min(3, len(preprocessed["rgbs"]))):
+                print(f"  RGB {i}: {preprocessed['rgbs'][i]}")
+        else:
+            print("  No RGB values available")
+        
+        print("\n" + "-"*40)
+        print("Conic and opacity values (first 3):")
+        print("-"*40)
+        if len(preprocessed["conic_opacity"]) > 0:
+            for i in range(min(3, len(preprocessed["conic_opacity"]))):
+                conic = preprocessed["conic_opacity"][i]
+                print(f"  Conic {i}: [{float(conic[0]):.4f}, {float(conic[1]):.4f}, {float(conic[2]):.4f}], Opacity: {float(conic[3]):.4f}")
+        else:
+            print("  No conic values available")
+        
+        print("\n" + "-"*40)
+        print("Other preprocessed data:")
+        print("-"*40)
+        for key in preprocessed:
+            if key not in ["points_xy_image", "rgbs", "conic_opacity", "depths"]:
+                data = preprocessed[key]
+                if isinstance(data, list) or isinstance(data, np.ndarray):
+                    print(f"  {key}: shape={np.array(data).shape}")
+                else:
+                    print(f"  {key}: {data}")
+        
+        print("\n" + "="*80)
+        print(" "*35 + "END SUMMARY")
+        print("="*80 + "\n")
+        exit()
 
         # render
         logger.info("Starting render...")
@@ -123,28 +182,38 @@ class Rasterizer:
         for idx in range(P):
             # make sure point in frustum
             p_orig = orig_points[idx]
+            print(f"p_orig: {p_orig}")
             p_view = in_frustum(p_orig, viewmatrix)
+            print(f"p_view: {p_view}")
             if p_view is None:
                 continue
             depths.append(p_view[2])
+            print(f"depths: {depths}")
 
             # transform point, from world to ndc
             # Notice, projmatrix already processed as mvp matrix
             p_hom = transformPoint4x4(p_orig, projmatrix)
+            print(f"p_hom: {p_hom}")
             p_w = 1 / (p_hom[3] + 0.0000001)
+            print(f"p_w: {p_w}")
             p_proj = [p_hom[0] * p_w, p_hom[1] * p_w, p_hom[2] * p_w]
+            print(f"p_proj: {p_proj}")
 
             # compute 3d covarance by scaling and rotation parameters
             scale = scales[idx]
             rotation = rotations[idx]
             cov3D = computeCov3D(scale, scale_modifier, rotation)
             cov3Ds.append(cov3D)
+            
+            print(f"cov3D: {cov3D}")
 
             # compute 2D screen-space covariance matrix
             # based on splatting, -> JW Sigma W^T J^T
             cov = computeCov2D(
                 p_orig, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix
             )
+            print(f"cov: {cov}")
+            exit()
 
             # invert covarance(EWA splatting)
             det = cov[0] * cov[2] - cov[1] * cov[1]
@@ -292,7 +361,7 @@ if __name__ == "__main__":
     print(projmatrix)
     print("----- END 3DGS DEBUGGING PARAMETERS -----\n")
     
-    exit()
+    
     
     out_color = rasterizer.forward(
         P=len(pts),
