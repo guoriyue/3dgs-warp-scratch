@@ -56,10 +56,9 @@ def compute_cov2d(cov3d: wp.mat33, view_matrix: wp.mat44, proj_matrix: wp.mat44,
     cov_image = wp.mat22()
     JW = mat23()
     JW = J * cov_camera
-    cov_image = JW * J.T
+    JT = wp.transpose(J)
+    cov_image = JW * JT
     return cov_image
-
-
 
 @wp.kernel
 def wp_rasterize_gaussians(
