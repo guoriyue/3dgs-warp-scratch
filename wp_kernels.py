@@ -52,10 +52,11 @@ def compute_cov2d(cov3d: wp.mat33, view_matrix: wp.mat44, proj_matrix: wp.mat44,
         0.0, fy, 0.0
     )
     
-    # Matrix multiply to get covariance in image space
-    JW = wp.matmul(J, cov_camera)
-    cov_image = wp.matmul(JW, wp.transpose(J))
-    
+    # Project the covariance to 2D
+    cov_image = wp.mat22()
+    JW = mat23()
+    JW = J * cov_camera
+    cov_image = JW * J.T
     return cov_image
 
 
