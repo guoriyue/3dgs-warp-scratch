@@ -1,0 +1,38 @@
+
+----- 3DGS DEBUGGING PARAMETERS -----
+Image dimensions: 700x700
+Background color: [0 0 0]
+Number of Gaussians: 3
+Gaussian means shape: (3, 3)
+SH coefficients shape: (3, 16, 3)
+Gaussian scales shape: (3, 3)
+Gaussian rotations shape: (3, 3, 3)
+Gaussian opacities shape: (3, 1)
+Scale modifier: 1
+Tan fovx: 0.5578517393521941, Tan fovy: 0.5578517393521941
+Focal length x: 627.4068454217564, Focal length y: 627.4068454217564
+Camera position: [0 0 5]
+
+Sample values for first Gaussian:
+  Position: [ 2  0 -2]
+  SH coeffs (first few): [[0.17709576 0.68304496 0.22439483]
+ [0.68310767 0.85268291 0.79226561]
+ [0.69442613 0.45569364 0.18268845]]
+  Scale: [1. 1. 1.]
+  Rotation: [[1. 0. 0.]
+ [0. 1. 0.]
+ [0. 0. 1.]]
+  Opacity: [1.]
+
+View matrix:
+[[ 1.  0.  0.  0.]
+ [ 0.  1.  0.  0.]
+ [-0. -0. -1.  5.]
+ [ 0.  0.  0.  1.]]
+
+Projection matrix:
+[[ 1.79259099  0.          0.          0.        ]
+ [ 0.          1.79259099  0.          0.        ]
+ [ 0.          0.         -1.00010001  4.99049905]
+ [ 0.          0.         -1.          5.        ]]
+----- END 3DGS DEBUGGING PARAMETERS -----
