@@ -14,15 +14,14 @@ def get_rect(p: wp.vec2, max_radius: float, tile_grid: wp.vec3):
     # Extract grid dimensions
     grid_size_x = tile_grid[0]
     grid_size_y = tile_grid[1]
-    print(grid_size_x)
-    print(wp.max(0, wp.int32((p[0] - max_radius) / float(TILE_M))))
+
     # Calculate rectangle bounds matching CUDA implementation
-    rect_min_x = wp.max(wp.int32(0), wp.int32((p[0] - max_radius) / float(TILE_M)))
-    rect_min_y = wp.max(wp.int32(0), wp.int32((p[1] - max_radius) / float(TILE_N)))
+    rect_min_x = wp.min(wp.int32(grid_size_x), wp.int32(wp.max(wp.int32(0), wp.int32((p[0] - max_radius) / float(TILE_M)))))
+    rect_min_y = wp.min(wp.int32(grid_size_y), wp.int32(wp.max(wp.int32(0), wp.int32((p[1] - max_radius) / float(TILE_N)))))
     
 
-    rect_max_x = wp.max(wp.int32(0), wp.int32((p[0] + max_radius + float(TILE_M) - 1.0) / float(TILE_M)))
-    rect_max_y = wp.max(wp.int32(0), wp.int32((p[1] + max_radius + float(TILE_N) - 1.0) / float(TILE_N)))
+    rect_max_x = wp.min(wp.int32(grid_size_x), wp.int32(wp.max(wp.int32(0), wp.int32((p[0] + max_radius + float(TILE_M) - 1.0) / float(TILE_M)))))
+    rect_max_y = wp.min(wp.int32(grid_size_y), wp.int32(wp.max(wp.int32(0), wp.int32((p[1] + max_radius + float(TILE_N) - 1.0) / float(TILE_N)))))
     
     return rect_min_x, rect_min_y, rect_max_x, rect_max_y
 
@@ -293,26 +292,25 @@ def wp_preprocess(
         -cov_with_blur[1] * det_inv, 
         cov_with_blur[0] * det_inv
     )
-    
     # Compute eigenvalues of covariance matrix to find screen-space extent
-    mid = 0.5 * (cov_with_blur[0] + cov_with_blur[2])
+    # mid = 0.5 * (cov_with_blur[0] + cov_with_blur[2])
+    mid = 0.5 * (cov_with_blur[0] + cov_with_blur[1])
     lambda1 = mid + wp.sqrt(wp.max(0.1, mid * mid - det))
     lambda2 = mid - wp.sqrt(wp.max(0.1, mid * mid - det))
     my_radius = wp.ceil(3.0 * wp.sqrt(wp.max(lambda1, lambda2)))
-    
     # Convert to pixel coordinates
     point_image = wp.vec2(ndc2pix(p_proj[0], W_float), ndc2pix(p_proj[1], H_float))
-    # grid = wp.vec2(image_width // TILE_M, image_height // TILE_N)
+
     # Get rectangle of affected tiles
     rect_min_x, rect_min_y, rect_max_x, rect_max_y = get_rect(point_image, my_radius, tile_grid)
     
     # Skip if rectangle has 0 area
     if (rect_max_x - rect_min_x) * (rect_max_y - rect_min_y) == 0:
         return
-    
+    # print(shs)
     # Compute color from spherical harmonics
     result = compute_color_from_sh(i, orig_points, cam_pos, shs, 3, clamped)
-    
+
     rgb[i] = result
     
     # Store computed data

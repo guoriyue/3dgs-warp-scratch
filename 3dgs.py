@@ -213,7 +213,7 @@ class Rasterizer:
                 p_orig, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix
             )
             print(f"cov: {cov}")
-            exit()
+            # exit()
 
             # invert covarance(EWA splatting)
             det = cov[0] * cov[2] - cov[1] * cov[1]
@@ -224,21 +224,27 @@ class Rasterizer:
             det_inv = 1 / det
             conic = [cov[2] * det_inv, -cov[1] * det_inv, cov[0] * det_inv]
             conic_opacity.append([conic[0], conic[1], conic[2], opacities[idx]])
-
+            print("cov: ", cov)
             # compute radius, by finding eigenvalues of 2d covariance
             # transfrom point from NDC to Pixel
             mid = 0.5 * (cov[0] + cov[1])
             lambda1 = mid + sqrt(max(0.1, mid * mid - det))
             lambda2 = mid - sqrt(max(0.1, mid * mid - det))
+            print("lambda1: ", lambda1)
+            print("lambda2: ", lambda2)
             my_radius = ceil(3 * sqrt(max(lambda1, lambda2)))
             point_image = [ndc2Pix(p_proj[0], W), ndc2Pix(p_proj[1], H)]
-
+            print(f"point_image: {point_image}")
+            print(f"my_radius: {my_radius}")
             radii.append(my_radius)
             points_xy_image.append(point_image)
 
             # convert spherical harmonics coefficients to RGB color
             sh = shs[idx]
+            print(f"sh: {sh}")
             result = computeColorFromSH(D, p_orig, cam_pos, sh)
+            print(f"result: {result}")
+            exit()
             rgbs.append(result)
 
         return dict(
@@ -312,7 +318,24 @@ if __name__ == "__main__":
     # set guassian
     pts = np.array([[2, 0, -2], [0, 2, -2], [-2, 0, -2]])
     n = len(pts)
-    shs = np.random.random((n, 16, 3))
+    # Create fixed interval SH coefficients from 0 to 1
+    # shs = np.random.random((n, 16, 3))
+    shs = np.array([[0.71734341, 0.91905449, 0.49961076],
+                    [0.08068483, 0.82132256, 0.01301602],
+                    [0.8335743,  0.31798138, 0.19709007],
+                    [0.82589597, 0.28206231, 0.790489  ],
+                    [0.24008527, 0.21312673, 0.53132892],
+                    [0.19493135, 0.37989934, 0.61886235],
+                    [0.98106522, 0.28960672, 0.57313965],
+                    [0.92623716, 0.46034381, 0.5485369 ],
+                    [0.81660616, 0.7801104,  0.27813915],
+                    [0.96114063, 0.69872817, 0.68313804],
+                    [0.95464185, 0.21984855, 0.92912192],
+                    [0.23503135, 0.29786121, 0.24999751],
+                    [0.29844887, 0.6327788,  0.05423596],
+                    [0.08934335, 0.11851827, 0.04186001],
+                    [0.59331831, 0.919777,   0.71364335],
+                    [0.83377388, 0.40242542, 0.8792624 ]]*n).reshape(n, 16, 3)
     opacities = np.ones((n, 1))
     scales = np.ones((n, 3))
     rotations = np.array([np.eye(3)] * n)
