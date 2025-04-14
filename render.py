@@ -48,26 +48,30 @@ if __name__ == "__main__":
     
     focal_x = image_width / (2 * tan_fovx)
     focal_y = image_height / (2 * tan_fovy)
+    
+    colors = np.random.random((n, 3)).astype(np.float32)
 
     # Call the Gaussian rasterizer
     rendered_image, depth_image = render_gaussians(
         background=background,
-        orig_points=pts,
-        colors=None,
-        opacities=opacities,
+        means3D=pts,
+        colors=colors,
+        opacity=opacities,
         scales=scales,
         rotations=rotations,
         scale_modifier=scale_modifier,
-        view_matrix=view_matrix,
-        proj_matrix=proj_matrix,
+        viewmatrix=view_matrix,
+        projmatrix=proj_matrix,
         tan_fovx=tan_fovx,
         tan_fovy=tan_fovy,
-        sh_coeffs=shs,
         image_height=image_height,
         image_width=image_width,
-        camera_pos=camera_pos,
+        sh=shs,
+        degree=3,
+        campos=camera_pos,
+        prefiltered=False,
         antialiasing=False,
-        verbose=True
+        debug=True
     )
 
     # Convert the rendered image from device to host
