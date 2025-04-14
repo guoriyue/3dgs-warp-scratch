@@ -5,8 +5,6 @@ from config import *
 # Initialize Warp
 wp.init()
 
-
-
 @wp.func
 def ndc2pix(x: float, size: float) -> float:
     return (x + 1.0) * 0.5 * size
@@ -31,26 +29,84 @@ def get_rect(p: wp.vec2, max_radius: float, tile_grid: wp.vec3):
 
 @wp.func
 def compute_color_from_sh(
-    i: int,
+    idx: int,
     points: wp.array(dtype=wp.vec3),
-    cam_pos: wp.vec3,
+    campos: wp.vec3,
     shs: wp.array(dtype=wp.vec3),
+    degree: int,
     clamped: bool
 ) -> wp.vec3:
-    # Note: Implementation would depend on your spherical harmonics setup
-    # This is a placeholder
-    view_dir = wp.normalize(cam_pos - points[i])
+    """Compute colors from spherical harmonics coefficients.
     
-    # Simple placeholder for SH lighting (would need to be replaced with actual implementation)
-    result = wp.vec3(shs[i])
+    Args:
+        idx: Index of the point (Gaussian)
+        points: Array of 3D positions
+        campos: Camera position
+        shs: Array of SH coefficients, flattened from (n, 16, 3) to (n*16, 3)
+        degree: Degree of SH to compute (0, 1, 2, or 3)
+        clamped: Whether to clamp colors to [0,1]
+        
+    Returns:
+        RGB color as vec3
+    """
+    # Constants for spherical harmonics (copied from render_python/sh.py)
+    SH_C0 = 0.28209479177387814
+    SH_C1 = 0.4886025119029199
+    
+    # Calculate view direction
+    pos = points[idx]
+    dir = pos - campos
+    dir = wp.normalize(dir)
+    x, y, z = dir[0], dir[1], dir[2]
+    
+    # Base offset for this Gaussian's SH coefficients
+    base_idx = idx * 16  # assuming degree 3 (16 coefficients)
+    
+    # Start with the DC component (degree 0)
+    result = SH_C0 * shs[base_idx]
+    
+    # Add higher degree terms if requested
+    if degree > 0:
+        # Degree 1 terms
+        result = result - SH_C1 * y * shs[base_idx + 1] + SH_C1 * z * shs[base_idx + 2] - SH_C1 * x * shs[base_idx + 3]
+        
+        if degree > 1:
+            # Degree 2 terms
+            xx = x*x
+            yy = y*y
+            zz = z*z
+            xy = x*y
+            yz = y*z
+            xz = x*z
+            
+            # Using exact same constants as in render_python/sh.py
+            result = result + 1.0925484305920792 * xy * shs[base_idx + 4] \
+                   + (-1.0925484305920792) * yz * shs[base_idx + 5] \
+                   + 0.31539156525252005 * (2.0 * zz - xx - yy) * shs[base_idx + 6] \
+                   + (-1.0925484305920792) * xz * shs[base_idx + 7] \
+                   + 0.5462742152960396 * (xx - yy) * shs[base_idx + 8]
+                   
+            if degree > 2:
+                # Degree 3 terms using exact same constants as in render_python/sh.py
+                result = result \
+                       + (-0.5900435899266435) * y * (3.0 * xx - yy) * shs[base_idx + 9] \
+                       + 2.890611442640554 * xy * z * shs[base_idx + 10] \
+                       + (-0.4570457994644658) * y * (4.0 * zz - xx - yy) * shs[base_idx + 11] \
+                       + 0.3731763325901154 * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * shs[base_idx + 12] \
+                       + (-0.4570457994644658) * x * (4.0 * zz - xx - yy) * shs[base_idx + 13] \
+                       + 1.445305721320277 * z * (xx - yy) * shs[base_idx + 14] \
+                       + (-0.5900435899266435) * x * (xx - 3.0 * yy) * shs[base_idx + 15]
+    
+    result = result + wp.vec3(0.5, 0.5, 0.5)
     
     if clamped:
+        # RGB colors are clamped to positive values
         result = wp.vec3(
-            wp.clamp(result[0], 0.0, 1.0),
-            wp.clamp(result[1], 0.0, 1.0),
-            wp.clamp(result[2], 0.0, 1.0)
+            wp.max(result[0], 0.0),
+            wp.max(result[1], 0.0),
+            wp.max(result[2], 0.0)
         )
-        
+    
     return result
 
 # Added camera transformation functions
@@ -159,6 +215,7 @@ def wp_preprocess(
     
     opacities: wp.array(dtype=float),
     shs: wp.array(dtype=wp.vec3),
+    degree: int,
     clamped: bool,
     
     view_matrix: wp.mat44,
@@ -254,7 +311,7 @@ def wp_preprocess(
         return
     
     # Compute color from spherical harmonics
-    result = compute_color_from_sh(i, orig_points, cam_pos, shs, clamped)
+    result = compute_color_from_sh(i, orig_points, cam_pos, shs, 3, clamped)
     
     rgb[i] = result
     
@@ -367,8 +424,11 @@ def render_gaussians(
     background_warp = wp.vec3(background[0], background[1], background[2])
     points_warp = to_warp_array(means3D, wp.vec3)
     
-    # Handle spherical harmonics coefficients
-    shs_warp = to_warp_array(sh, wp.vec3)
+
+    # SH coefficients should be shape (n, 16, 3)
+    # Convert to a flattened array but preserve the structure
+    sh_data = sh.reshape(-1, 3) if hasattr(sh, 'reshape') else sh
+    shs_warp = to_warp_array(sh_data, wp.vec3)
     
     # Handle other parameters
     opacities_warp = to_warp_array(opacity, float, flatten=True)
@@ -413,6 +473,7 @@ def render_gaussians(
             rotations_warp,            # rotations
             opacities_warp,            # opacities
             shs_warp,                  # shs
+            degree,
             clamped,                   # clamped
             view_matrix_warp,          # view_matrix
             proj_matrix_warp,          # proj_matrix
