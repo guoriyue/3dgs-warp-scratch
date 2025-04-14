@@ -354,6 +354,86 @@ def wp_render_gaussians(
 ):
     pass
 
+
+@wp.kernel
+def wp_duplicate_with_keys(
+    points_xy_image: wp.array(dtype=wp.vec2),
+    depths: wp.array(dtype=float),
+    point_offsets: wp.array(dtype=int),
+    point_list_keys_unsorted: wp.array(dtype=int),
+    point_list_unsorted: wp.array(dtype=int),
+    radii: wp.array(dtype=int),
+    tile_grid: wp.vec3
+):
+    tid = wp.tid()
+
+    if tid >= points_xy_image.shape[0]:
+        return
+
+    r = radii[tid]
+    if r <= 0:
+        return
+
+    # Find the global offset into key/value buffers
+    offset = 0
+    if tid > 0:
+        offset = point_offsets[tid - 1]
+
+    pos = points_xy_image[tid]
+    depth_val = depths[tid]
+
+    rect_min_x, rect_min_y, rect_max_x, rect_max_y = get_rect(pos, float(r), tile_grid)
+    for y in range(rect_min_y, rect_max_y):
+        for x in range(rect_min_x, rect_max_x):
+            tile_id = y * int(tile_grid[0]) + x
+            # key = tile_id << 32 | float_as_uint32(depth)
+            key = (tile_id << 32) | wp.int32(depth_val)
+
+            point_list_keys_unsorted[offset] = key
+            point_list_unsorted[offset] = tid
+            offset += 1
+            
+@wp.kernel
+def wp_identify_tile_ranges(
+    num_rendered: int,
+    point_list_keys: wp.array(dtype=int),
+    ranges: wp.array(dtype=wp.vec2i)  # Each range is (start, end)
+):
+    idx = wp.tid()
+
+    if idx >= num_rendered:
+        return
+
+    key = point_list_keys[idx]
+    curr_tile = int(key >> 32)
+
+    # Set start of range if first element or tile changed
+    if idx == 0:
+        ranges[curr_tile][0] = 0
+    else:
+        prev_key = point_list_keys[idx - 1]
+        prev_tile = int(prev_key >> 32)
+        if curr_tile != prev_tile:
+            ranges[prev_tile][1] = idx
+            ranges[curr_tile][0] = idx
+
+    # Set end of range if last element
+    if idx == num_rendered - 1:
+        ranges[curr_tile][1] = num_rendered
+
+
+@wp.kernel
+def wp_prefix_sum(input_array: wp.array(dtype=int),
+                      output_array: wp.array(dtype=int)):
+    tid = wp.tid()
+    
+    if tid == 0:
+        output_array[0] = input_array[0]
+        
+        # Perform prefix sum
+        for i in range(1, input_array.shape[0]):
+            output_array[i] = output_array[i-1] + input_array[i]
+
 def render_gaussians(
     background,
     means3D,
@@ -495,4 +575,73 @@ def render_gaussians(
         ]
     )
     
+    
+    
+    # 1. Prefix sum: compute offsets for duplication
+    point_offsets = wp.zeros(num_points, dtype=int)
+    wp.launch(
+        kernel=wp_prefix_sum,
+        dim=1,
+        inputs=[
+            tiles_touched,
+            point_offsets
+        ]
+    )
+
+    
+    num_rendered = int(wp.to_torch(point_offsets)[-1].item())  # total number of duplicated entries
+
+    # 2. Allocate binning buffers
+    point_list_keys_unsorted = wp.zeros(num_rendered, dtype=int)
+    point_list_unsorted = wp.zeros(num_rendered, dtype=int)
+    point_list_keys = wp.zeros(num_rendered, dtype=int)
+    point_list = wp.zeros(num_rendered, dtype=int)
+
+    # 3. Duplicate with keys (your kernel should be implemented like the C++ one)
+    wp.launch(
+        kernel=wp_duplicate_with_keys,  # You need to define this kernel
+        dim=num_points,
+        inputs=[
+            points_xy_image,
+            depths,
+            point_offsets,
+            point_list_keys_unsorted,
+            point_list_unsorted,
+            radii,
+            tile_grid
+        ]
+    )
+
+    # 4. Sort by key using Warp's radix sort
+    # Allocate extra space (2x) for sorting
+    point_list_keys_unsorted_padded = wp.zeros(num_rendered * 2, dtype=int) 
+    point_list_unsorted_padded = wp.zeros(num_rendered * 2, dtype=int)
+    
+    # Copy data to padded arrays
+    wp.copy(point_list_keys_unsorted_padded, point_list_keys_unsorted)
+    wp.copy(point_list_unsorted_padded, point_list_unsorted)
+    
+    wp.utils.radix_sort_pairs(
+        point_list_keys_unsorted_padded,  # keys to sort
+        point_list_unsorted_padded,       # values to sort along with keys
+        num_rendered                      # number of elements to sort
+    )
+    wp.copy(point_list_keys, point_list_keys_unsorted)
+    wp.copy(point_list, point_list_unsorted)
+
+    # 5. Compute tile ranges
+    tile_count = int(tile_grid[0] * tile_grid[1])
+    ranges = wp.zeros(tile_count, dtype=wp.vec2i)  # each is (start, end)
+
+    if num_rendered > 0:
+        wp.launch(
+            kernel=wp_identify_tile_ranges,  # You also need this kernel
+            dim=num_rendered,
+            inputs=[
+                num_rendered,
+                point_list_keys,
+                ranges
+            ]
+        )
+        
     return rendered_image, depth_image
