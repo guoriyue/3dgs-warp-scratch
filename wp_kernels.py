@@ -158,6 +158,7 @@ def wp_preprocess(
     rotations: wp.array(dtype=wp.mat33),
     
     opacities: wp.array(dtype=float),
+    shs: wp.array(dtype=wp.vec3),
     clamped: bool,
     
     view_matrix: wp.mat44,
@@ -253,8 +254,8 @@ def wp_preprocess(
         return
     
     # Compute color from spherical harmonics
-    # result = compute_color_from_sh(i, orig_points, cam_pos, shs, clamped)
-    result = wp.vec3(0.0, 0.0, 0.0)
+    result = compute_color_from_sh(i, orig_points, cam_pos, shs, clamped)
+    
     rgb[i] = result
     
     # Store computed data
@@ -312,6 +313,7 @@ def render_gaussians(
     tan_fovy=0.5,
     image_height=256,
     image_width=256,
+    sh=None,
     degree=3,
     campos=None,
     prefiltered=False,
@@ -334,6 +336,7 @@ def render_gaussians(
         tan_fovy: Tangent of the vertical field of view
         image_height: Height of the output image
         image_width: Width of the output image
+        sh: Spherical harmonics coefficients tensor of shape (N, D, 3)
         degree: Degree of spherical harmonics
         campos: Camera position tensor of shape (3,)
         prefiltered: Whether input Gaussians are prefiltered
@@ -363,6 +366,9 @@ def render_gaussians(
 
     background_warp = wp.vec3(background[0], background[1], background[2])
     points_warp = to_warp_array(means3D, wp.vec3)
+    
+    # Handle spherical harmonics coefficients
+    shs_warp = to_warp_array(sh, wp.vec3)
     
     # Handle other parameters
     opacities_warp = to_warp_array(opacity, float, flatten=True)
@@ -406,6 +412,7 @@ def render_gaussians(
             scale_modifier,            # scale_modifier
             rotations_warp,            # rotations
             opacities_warp,            # opacities
+            shs_warp,                  # shs
             clamped,                   # clamped
             view_matrix_warp,          # view_matrix
             proj_matrix_warp,          # proj_matrix

@@ -12,6 +12,7 @@ wp.init()
 if __name__ == "__main__":
     pts = np.array([[2, 0, -2], [0, 2, -2], [-2, 0, -2]], dtype=np.float32)
     n = len(pts)
+    shs = np.random.random((n, 16, 3)).astype(np.float32)
     opacities = np.ones((n, 1), dtype=np.float32)  # Match 3dgs.py format exactly
 
     scales = np.ones((n, 3), dtype=np.float32)
@@ -65,6 +66,7 @@ if __name__ == "__main__":
         tan_fovy=tan_fovy,
         image_height=image_height,
         image_width=image_width,
+        sh=shs,
         degree=3,
         campos=camera_pos,
         prefiltered=False,
