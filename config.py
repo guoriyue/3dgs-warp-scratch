@@ -13,6 +13,7 @@ WP_VEC2H = wp.vec2h
 DEVICE = "cuda:0"  # "cpu"
 TORCH_FLOAT = torch.float32
 
+
 TILE_M = wp.constant(32)
 TILE_N = wp.constant(32)
 TILE_THREADS = 128

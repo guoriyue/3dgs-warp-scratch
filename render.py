@@ -45,11 +45,14 @@ if __name__ == "__main__":
     
     tan_fovx = math.tan(fovx * 0.5)
     tan_fovy = math.tan(fovy * 0.5)
+    
+    focal_x = image_width / (2 * tan_fovx)
+    focal_y = image_height / (2 * tan_fovy)
 
     # Call the Gaussian rasterizer
     rendered_image, depth_image = render_gaussians(
         background=background,
-        pts=pts,
+        orig_points=pts,
         colors=None,
         opacities=opacities,
         scales=scales,

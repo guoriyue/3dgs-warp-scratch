@@ -5,6 +5,56 @@ from config import *
 # Initialize Warp
 wp.init()
 
+
+
+@wp.func
+def ndc2pix(x: float, size: float) -> float:
+    return (x + 1.0) * 0.5 * size
+
+@wp.func
+def get_rect(p: wp.vec2, max_radius: float, tile_grid: wp.vec3):
+    # Extract grid dimensions
+    grid_size_x = tile_grid[0]
+    grid_size_y = tile_grid[1]
+    
+    # Calculate rectangle bounds matching CUDA implementation
+    rect_min = wp.vec2(
+        wp.min(grid_size_x, wp.max(0, wp.int32((p[0] - max_radius) / TILE_M))),
+        wp.min(grid_size_y, wp.max(0, wp.int32((p[1] - max_radius) / TILE_N)))
+    )
+    
+    rect_max = wp.vec2(
+        wp.min(grid_size_x, wp.max(0, wp.int32((p[0] + max_radius + TILE_M - 1.0) / TILE_M))),
+        wp.min(grid_size_y, wp.max(0, wp.int32((p[1] + max_radius + TILE_N - 1.0) / TILE_N)))
+    )
+    
+    return rect_min, rect_max
+
+
+@wp.func
+def compute_color_from_sh(
+    i: int,
+    points: wp.array(dtype=wp.vec3),
+    cam_pos: wp.vec3,
+    shs: wp.array(dtype=wp.vec3),
+    clamped: bool
+) -> wp.vec3:
+    # Note: Implementation would depend on your spherical harmonics setup
+    # This is a placeholder
+    view_dir = wp.normalize(cam_pos - points[i])
+    
+    # Simple placeholder for SH lighting (would need to be replaced with actual implementation)
+    result = wp.vec3(shs[i])
+    
+    if clamped:
+        result = wp.vec3(
+            wp.clamp(result[0], 0.0, 1.0),
+            wp.clamp(result[1], 0.0, 1.0),
+            wp.clamp(result[2], 0.0, 1.0)
+        )
+        
+    return result
+
 # Added camera transformation functions
 def wp_world_to_view(R, t, translate=np.array([0.0, 0.0, 0.0]), scale=1.0):
     Rt = np.zeros((4, 4))
@@ -106,110 +156,140 @@ def compute_cov3d(scale: wp.vec3, scale_mod: float, rot: wp.mat33) -> vec6:
     
     return vec6(sigma[0, 0], sigma[0, 1], sigma[0, 2], sigma[1, 1], sigma[1, 2], sigma[2, 2])
 
+
+@wp.func
+def in_frustum(p_orig: wp.vec3, view_matrix: wp.mat44):
+    # bring point to screen space
+    p_view = wp.transform_point(view_matrix, p_orig)
+
+    if p_view[2] <= 0.2:
+        return None
+    return p_view
+
 @wp.kernel
 def wp_preprocess(
-    # Output buffers
-    rendered_image: wp.array2d(dtype=wp.vec3),
-    depth_image: wp.array2d(dtype=float),
-    
-    # Input parameters
-    background: wp.vec3,
-    pts: wp.array(dtype=wp.vec3),
-    colors: wp.array(dtype=wp.vec3),
-    opacities: wp.array(dtype=float),
+    orig_points: wp.array(dtype=wp.vec3),
     scales: wp.array(dtype=wp.vec3),
-    rotations: wp.array(dtype=wp.mat33),
     scale_modifier: float,
+    rotations: wp.array(dtype=wp.mat33),
     
-    # View parameters
+    opacities: wp.array(dtype=float),
+    shs: wp.array(dtype=wp.vec3),
+    clamped: wp.array(dtype=bool),
+    
+    cov3D_precomp: wp.array(dtype=vec6),
+    colors_precomp: wp.array(dtype=wp.vec3),
+    
     view_matrix: wp.mat44,
     proj_matrix: wp.mat44,
+    cam_pos: wp.vec3,
+    
+    W: int,
+    H: int,
+    
     tan_fovx: float,
     tan_fovy: float,
     
-    # Camera parameters
-    camera_pos: wp.vec3,
+    focal_x: float,
+    focal_y: float,
     
-    # Additional flags
-    antialiasing: int
+    radii: wp.array(dtype=int),
+    points_xy_image: wp.array(dtype=wp.vec2),
+    depths: wp.array(dtype=float),
+    cov3Ds: wp.array(dtype=vec6),
+    rgb: wp.array(dtype=wp.vec3),
+    conic_opacity: wp.array(dtype=wp.vec4),
+    tile_grid: wp.vec3,
+    tiles_touched: wp.array(dtype=int),
+    
+    prefiltered: bool,
+    antialiasing: bool
 ):
     # Get thread indices
     i = wp.tid()
     
-    # Initialize pixel color and depth
-    color = background
-    depth = float(1.0)
-    accumulated_alpha = float(0.0)
-    
-    # Get image dimensions
-    image_height = rendered_image.shape[0]
-    image_width = rendered_image.shape[1]
     # For each Gaussian
-    p_orig = pts[i]
-    # Transform to camera space
-    p_view = wp.transform_point(view_matrix, p_orig)
+    p_orig = orig_points[i]
     
-    # project to clip space
-    p_clip = proj_matrix * wp.vec4(p_orig[0], p_orig[1], p_orig[2], 1.0)
-    p_ndc = wp.vec3(p_clip[0] / p_clip[3], p_clip[1] / p_clip[3], p_clip[2] / p_clip[3])
+    p_view = in_frustum(p_orig, view_matrix)
+    if p_view is None:
+        return
     
-    p_screen = wp.vec2(
-        (p_ndc[0] + 1.0) * 0.5 * float(image_width),
-        (p_ndc[1] + 1.0) * 0.5 * float(image_height)
-    )
+    p_hom = wp.vec4(p_orig[0], p_orig[1], p_orig[2], 1.0)
+    p_hom = proj_matrix * p_hom
+    p_w = 1.0 / (p_hom[3] + 0.0000001)
+    p_proj = wp.vec3(p_hom[0] * p_w, p_hom[1] * p_w, p_hom[2] * p_w)
     
     cov3d = compute_cov3d(scales[i], scale_modifier, rotations[i])
     
     # Compute 2D covariance matrix
     cov2d = compute_cov2d(p_orig, cov3d, view_matrix, tan_fovx, tan_fovy, float(image_width), float(image_height))
-
-    #     # Check if the current pixel is within the Gaussian's influence
-    #     # Compute Mahalanobis distance
-    #     diff_x = pixel_pos[0] - p_screen[0]
-    #     diff_y = pixel_pos[1] - p_screen[1]
-        
-    #     # Calculate determinant and inverse of covariance
-    #     det = cov2d[0, 0] * cov2d[1, 1] - cov2d[0, 1] * cov2d[1, 0]
-    #     if det <= 1e-10:
-    #         continue
-            
-    #     inv_det = 1.0 / det
-        
-    #     inv_cov = wp.mat22(
-    #         cov2d[1, 1] * inv_det, -cov2d[0, 1] * inv_det,
-    #         -cov2d[1, 0] * inv_det, cov2d[0, 0] * inv_det
-    #     )
-        
-    #     # Compute Mahalanobis distance squared
-    #     dist_sq = diff_x * (inv_cov[0, 0] * diff_x + inv_cov[0, 1] * diff_y) + diff_y * (inv_cov[1, 0] * diff_x + inv_cov[1, 1] * diff_y)
-        
-    #     # Skip if pixel is outside the Gaussian's influence
-    #     if dist_sq > 9.0:  # 3 sigma rule
-    #         continue
-            
-    #     # Evaluate Gaussian
-    #     gaussian_value = wp.exp(-0.5 * dist_sq) * opacity
-        
-    #     # Blend color based on alpha compositing (front-to-back)
-    #     # Normalize depth to [0, 1]
-    #     gaussian_depth = 0.5 * (p_ndc[2] + 1.0)
-        
-    #     # Only blend if this Gaussian is closer than accumulated depth so far
-    #     if gaussian_depth < depth and gaussian_value > 0.001:
-    #         # Alpha blending
-    #         alpha = gaussian_value * (1.0 - accumulated_alpha)
-    #         if alpha > 0.0:
-    #             color = color + alpha * gaussian_color
-    #             depth = gaussian_depth
-    #             accumulated_alpha = accumulated_alpha + alpha
-                
-    #             # Early termination if opaque
-    #             if accumulated_alpha >= 0.99:
-    #                 break
     
-    # # Store final pixel values
-    # rendered_image[pixel_y, pixel_x] = color
-    # depth_image[pixel_y, pixel_x] = depth
+    
+    # Constants
+    h_var = 0.3
+    W = float(W)
+    H = float(H)
+    C = 3  # RGB channels
+    
+    # Add blur/antialiasing factor to covariance
+    det_cov = cov2d[0] * cov2d[2] - cov2d[1] * cov2d[1]
+    cov_with_blur = wp.vec3(cov2d[0] + h_var, cov2d[1], cov2d[2] + h_var)
+    det_cov_plus_h_cov = cov_with_blur[0] * cov_with_blur[2] - cov_with_blur[1] * cov_with_blur[1]
+    
+    # Antialiasing scaling factor
+    h_convolution_scaling = 1.0
+    if antialiasing:
+        h_convolution_scaling = wp.sqrt(wp.max(0.000025, det_cov / det_cov_plus_h_cov))
+    
+    # Invert covariance (EWA algorithm)
+    det = det_cov_plus_h_cov
+    
+    if det == 0.0:
+        return
+        
+    det_inv = 1.0 / det
+    conic = wp.vec3(
+        cov_with_blur[2] * det_inv, 
+        -cov_with_blur[1] * det_inv, 
+        cov_with_blur[0] * det_inv
+    )
+    
+    # Compute eigenvalues of covariance matrix to find screen-space extent
+    mid = 0.5 * (cov_with_blur[0] + cov_with_blur[2])
+    lambda1 = mid + wp.sqrt(wp.max(0.1, mid * mid - det))
+    lambda2 = mid - wp.sqrt(wp.max(0.1, mid * mid - det))
+    my_radius = wp.ceil(3.0 * wp.sqrt(wp.max(lambda1, lambda2)))
+    
+    # Convert to pixel coordinates
+    point_image = wp.vec2(ndc2pix(p_proj[0], W), ndc2pix(p_proj[1], H))
+    # grid = wp.vec2(image_width // TILE_M, image_height // TILE_N)
+    # Get rectangle of affected tiles
+    rect_min, rect_max = get_rect(point_image, my_radius, tile_grid)
+    
+    # Skip if rectangle has 0 area
+    if (rect_max[0] - rect_min[0]) * (rect_max[1] - rect_min[1]) == 0:
+        return
+    
+    # Process colors
+    if colors_precomp is None:
+        # Compute color from spherical harmonics
+        result = compute_color_from_sh(i, orig_points, cam_pos, shs, clamped)
+        rgb[i * 3 + 0] = result[0]
+        rgb[i * 3 + 1] = result[1]
+        rgb[i * 3 + 2] = result[2]
+    
+    # Store computed data
+    depths[i] = p_view[2]
+    radii[i] = my_radius
+    points_xy_image[i] = point_image
+    
+    # Pack conic and opacity into single vec4
+    opacity = opacities[i]
+    conic_opacity[i] = wp.vec4(conic[0], conic[1], conic[2], opacity * h_convolution_scaling)
+    
+    # Store tile information
+    tiles_touched[i] = (rect_max[1] - rect_min[1]) * (rect_max[0] - rect_min[0])
 
 @wp.kernel
 def wp_render_gaussians(
@@ -219,7 +299,7 @@ def wp_render_gaussians(
     
     # Input parameters
     background: wp.vec3,
-    pts: wp.array(dtype=wp.vec3),
+    orig_points: wp.array(dtype=wp.vec3),
     colors: wp.array(dtype=wp.vec3),
     opacities: wp.array(dtype=float),
     scales: wp.array(dtype=wp.vec3),
@@ -242,12 +322,16 @@ def wp_render_gaussians(
 
 def render_gaussians(
     background,
-    pts,
-    colors,
-    opacities,
+    orig_points,
     scales,
-    rotations,
     scale_modifier,
+    rotation,
+    opacities,
+    shs,
+    clamped,
+    cov3D_precomp,
+    colors_precomp,
+    
     view_matrix,
     proj_matrix,
     tan_fovx,
@@ -272,8 +356,8 @@ def render_gaussians(
         return wp.array(data, dtype=dtype)
 
     background_warp = wp.vec3(background[0], background[1], background[2])
-    pts_warp = to_warp_array(pts, wp.vec3)
-    colors_warp = wp.array(np.zeros((pts.shape[0], 3), dtype=np.float32), dtype=wp.vec3) if colors is None and sh_coeffs is not None else to_warp_array(colors, wp.vec3)
+    orig_points_warp = to_warp_array(orig_points, wp.vec3)
+    colors_warp = wp.array(np.zeros((orig_points.shape[0], 3), dtype=np.float32), dtype=wp.vec3) if colors is None and sh_coeffs is not None else to_warp_array(colors, wp.vec3)
     opacities_warp = to_warp_array(opacities, float, flatten=True)
     scales_warp = to_warp_array(scales, wp.vec3)
     rotations_warp = to_warp_array(rotations, wp.mat33)
@@ -282,18 +366,20 @@ def render_gaussians(
     proj_matrix_warp = wp.mat44(proj_matrix.flatten()) if not isinstance(proj_matrix, wp.mat44) else proj_matrix
     camera_pos_warp = wp.vec3(camera_pos[0], camera_pos[1], camera_pos[2]) if not isinstance(camera_pos, wp.vec3) else camera_pos
     
+    tile_grid = wp.vec3((image_width + TILE_M - 1) // TILE_M, (image_height + TILE_N - 1) // TILE_N, 1)
+    
     if verbose:
-        print(f"\nWARP RENDERING: {image_width}x{image_height} image, {pts_warp.shape[0]} gaussians")
+        print(f"\nWARP RENDERING: {image_width}x{image_height} image, {orig_points_warp.shape[0]} gaussians")
         print(f"Colors: {'from SH' if colors is None else 'provided'}, Rotations: {rotations_warp.shape[0]}")
 
     wp.launch(
         kernel=wp_preprocess,
-        dim=pts_warp.shape[0],
+        dim=orig_points_warp.shape[0],
         inputs=[
             rendered_image,
             depth_image,
             background_warp,
-            pts_warp,
+            orig_points_warp,
             colors_warp,
             opacities_warp,
             scales_warp,
@@ -304,9 +390,9 @@ def render_gaussians(
             tan_fovx,
             tan_fovy,
             camera_pos_warp,
+            tile_grid,
             1 if antialiasing else 0
         ]
     )
     
     return rendered_image, depth_image
-
