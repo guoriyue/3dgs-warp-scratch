@@ -331,29 +331,124 @@ def wp_render_gaussians(
     rendered_image: wp.array2d(dtype=wp.vec3),
     depth_image: wp.array2d(dtype=float),
     
-    # Input parameters
-    background: wp.vec3,
-    orig_points: wp.array(dtype=wp.vec3),
+    # Tile data
+    ranges: wp.array(dtype=wp.vec2i),
+    point_list: wp.array(dtype=int),
+    
+    # Image parameters
+    W: int,
+    H: int,
+    
+    # Gaussian data
+    points_xy_image: wp.array(dtype=wp.vec2),
     colors: wp.array(dtype=wp.vec3),
-    opacities: wp.array(dtype=float),
-    scales: wp.array(dtype=wp.vec3),
-    rotations: wp.array(dtype=wp.mat33),
-    scale_modifier: float,
+    conic_opacity: wp.array(dtype=wp.vec4),
+    depths: wp.array(dtype=float),
     
-    # View parameters
-    view_matrix: wp.mat44,
-    proj_matrix: wp.mat44,
-    tan_fovx: float,
-    tan_fovy: float,
+    # Background color
+    background: wp.vec3,
     
-    # Camera parameters
-    camera_pos: wp.vec3,
+    # Tile grid info
+    tile_grid: wp.vec3,
     
-    # Additional flags
-    antialiasing: int
+    # Block dimensions
+    block_x: int,
+    block_y: int
 ):
-    pass
-
+    # Get thread indices
+    tid_x = wp.tid() % block_x
+    tid_y = wp.tid() // block_x
+    
+    # Calculate tile index
+    horizontal_blocks = (W + block_x - 1) // block_x
+    tile_x = wp.tid() % horizontal_blocks
+    tile_y = wp.tid() // horizontal_blocks
+    
+    if tile_y >= (H + block_y - 1) // block_y:
+        return
+    
+    # Calculate pixel boundaries for this tile
+    pix_min_x = tile_x * block_x
+    pix_min_y = tile_y * block_y
+    pix_max_x = wp.min(pix_min_x + block_x, W)
+    pix_max_y = wp.min(pix_min_y + block_y, H)
+    
+    # Calculate pixel position for this thread
+    pix_x = pix_min_x + tid_x
+    pix_y = pix_min_y + tid_y
+    
+    # Check if this thread processes a valid pixel
+    inside = (pix_x < W) and (pix_y < H)
+    if not inside:
+        return
+    
+    pix_id = W * pix_y + pix_x
+    pixf_x = float(pix_x)
+    pixf_y = float(pix_y)
+    
+    # Get start/end range of IDs to process for this tile
+    tile_id = tile_y * horizontal_blocks + tile_x
+    range_start = ranges[tile_id][0]
+    range_end = ranges[tile_id][1]
+    
+    # Initialize blending variables
+    T = float(1.0)  # Transmittance
+    r, g, b = float(0.0), float(0.0), float(0.0)  # Accumulated color
+    expected_inv_depth = float(0.0)  # For depth calculation
+    
+    # Iterate over all Gaussians influencing this tile
+    for i in range(range_start, range_end):
+        # Get Gaussian ID
+        gaussian_id = point_list[i]
+        
+        # Get Gaussian data
+        xy = points_xy_image[gaussian_id]
+        con_o = conic_opacity[gaussian_id]
+        color = colors[gaussian_id]
+        
+        # Compute distance to Gaussian center
+        d_x = xy[0] - pixf_x
+        d_y = xy[1] - pixf_y
+        
+        # Compute Gaussian power (exponent)
+        power = -0.5 * (con_o[0] * d_x * d_x + con_o[2] * d_y * d_y) - con_o[1] * d_x * d_y
+        
+        # Skip if power is positive (too far away)
+        if power > 0.0:
+            continue
+        
+        # Compute alpha from power and opacity
+        alpha = wp.min(0.99, con_o[3] * wp.exp(power))
+        
+        # Skip if alpha is too small
+        if alpha < (1.0 / 255.0):
+            continue
+        
+        # Test if we're close to fully opaque
+        test_T = T * (1.0 - alpha)
+        if test_T < 0.0001:
+            break  # Early termination if pixel is almost opaque
+        
+        # Accumulate color contribution
+        r += color[0] * alpha * T
+        g += color[1] * alpha * T
+        b += color[2] * alpha * T
+        
+        # Accumulate inverse depth
+        expected_inv_depth += (1.0 / depths[gaussian_id]) * alpha * T
+        
+        # Update transmittance
+        T = test_T
+    
+    # Write final color to output buffer (color + background)
+    rendered_image[pix_y, pix_x] = wp.vec3(
+        r + T * background[0],
+        g + T * background[1],
+        b + T * background[2]
+    )
+    
+    # Write depth to output buffer
+    depth_image[pix_y, pix_x] = expected_inv_depth
 
 @wp.kernel
 def wp_duplicate_with_keys(
@@ -588,7 +683,6 @@ def render_gaussians(
         ]
     )
 
-    
     num_rendered = int(wp.to_torch(point_offsets)[-1].item())  # total number of duplicated entries
 
     # 2. Allocate binning buffers
@@ -644,4 +738,30 @@ def render_gaussians(
             ]
         )
         
+        # 6. Render tiles in parallel
+        block_x = TILE_M  # Use the tile size defined in config
+        block_y = TILE_N
+        num_tiles = tile_count
+        
+        wp.launch(
+            kernel=wp_render_gaussians,
+            dim=num_tiles * block_x * block_y,
+            inputs=[
+                rendered_image,        # Output color image
+                depth_image,           # Output depth image
+                ranges,                # Tile ranges
+                point_list,            # Sorted point indices
+                image_width,           # Image width
+                image_height,          # Image height
+                points_xy_image,       # 2D points
+                rgb,                   # Precomputed colors
+                conic_opacity,         # Conic matrices and opacities
+                depths,                # Depth values
+                background_warp,       # Background color
+                tile_grid,             # Tile grid configuration
+                block_x,               # Block X dimension
+                block_y                # Block Y dimension
+            ]
+        )
+    
     return rendered_image, depth_image
