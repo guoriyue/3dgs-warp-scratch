@@ -255,9 +255,8 @@ def wp_preprocess(
     
     # Compute color from spherical harmonics
     result = compute_color_from_sh(i, orig_points, cam_pos, shs, clamped)
-    rgb[i * 3 + 0] = result[0]
-    rgb[i * 3 + 1] = result[1]
-    rgb[i * 3 + 2] = result[2]
+    
+    rgb[i] = result
     
     # Store computed data
     depths[i] = p_view[2]
