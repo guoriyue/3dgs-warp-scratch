@@ -670,7 +670,7 @@ def render_gaussians(
         ]
     )
     
-    
+    print(tiles_touched)
     
     # 1. Prefix sum: compute offsets for duplication
     point_offsets = wp.zeros(num_points, dtype=int)
