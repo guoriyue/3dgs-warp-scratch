@@ -88,6 +88,7 @@ if __name__ == "__main__":
         campos=camera_pos,
         prefiltered=False,
         antialiasing=False,
+        clamped=True,
         debug=True
     )
 

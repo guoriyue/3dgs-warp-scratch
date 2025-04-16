@@ -132,11 +132,11 @@ class Rasterizer:
                     print(f"  {key}: shape={np.array(data).shape}")
                 else:
                     print(f"  {key}: {data}")
-        
+        print("depths", preprocessed["depths"])
         print("\n" + "="*80)
         print(" "*35 + "END SUMMARY")
         print("="*80 + "\n")
-        exit()
+        # exit()
 
         # render
         logger.info("Starting render...")
@@ -244,7 +244,7 @@ class Rasterizer:
             print(f"sh: {sh}")
             result = computeColorFromSH(D, p_orig, cam_pos, sh)
             print(f"result: {result}")
-            exit()
+            # exit()
             rgbs.append(result)
 
         return dict(

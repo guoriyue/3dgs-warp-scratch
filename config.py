@@ -19,5 +19,4 @@ TILE_N = wp.constant(32)
 TILE_THREADS = 128
 
 
-mat23 = wp.mat(shape=(2, 3), dtype=WP_FLOAT32)
-vec6 = wp.types.vector(length=6, dtype=WP_FLOAT32)
+VEC6 = wp.types.vector(length=6, dtype=WP_FLOAT32)

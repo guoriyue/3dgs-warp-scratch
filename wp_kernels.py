@@ -145,7 +145,7 @@ def wp_projection_matrix(fovx, fovy, znear, zfar):
     return P
 
 @wp.func
-def compute_cov2d(p_orig: wp.vec3, cov3d: vec6, view_matrix: wp.mat44, 
+def compute_cov2d(p_orig: wp.vec3, cov3d: VEC6, view_matrix: wp.mat44, 
                  tan_fovx: float, tan_fovy: float, width: float, height: float) -> wp.vec3:
     t = wp.transform_point(view_matrix, p_orig)
     limx = 1.3 * tan_fovx
@@ -182,7 +182,7 @@ def compute_cov2d(p_orig: wp.vec3, cov3d: vec6, view_matrix: wp.mat44,
     return wp.vec3(cov[0, 0], cov[0, 1], cov[1, 1])
 
 @wp.func
-def compute_cov3d(scale: wp.vec3, scale_mod: float, rot: wp.mat33) -> vec6:
+def compute_cov3d(scale: wp.vec3, scale_mod: float, rot: wp.mat33) -> VEC6:
     # Create scaling matrix with modifier applied
     S = wp.mat33(
         scale_mod * scale[0], 0.0, 0.0,
@@ -195,7 +195,7 @@ def compute_cov3d(scale: wp.vec3, scale_mod: float, rot: wp.mat33) -> vec6:
     # Compute 3D covariance matrix: Sigma = M * M^T
     sigma = M * wp.transpose(M)
     
-    return vec6(sigma[0, 0], sigma[0, 1], sigma[0, 2], sigma[1, 1], sigma[1, 2], sigma[2, 2])
+    return VEC6(sigma[0, 0], sigma[0, 1], sigma[0, 2], sigma[1, 1], sigma[1, 2], sigma[2, 2])
 
 
 @wp.func
@@ -233,7 +233,7 @@ def wp_preprocess(
     radii: wp.array(dtype=int),
     points_xy_image: wp.array(dtype=wp.vec2),
     depths: wp.array(dtype=float),
-    cov3Ds: wp.array(dtype=vec6),
+    cov3Ds: wp.array(dtype=VEC6),
     rgb: wp.array(dtype=wp.vec3),
     conic_opacity: wp.array(dtype=wp.vec4),
     tile_grid: wp.vec3,
@@ -321,7 +321,6 @@ def wp_preprocess(
     # Pack conic and opacity into single vec4
     opacity = opacities[i]
     conic_opacity[i] = wp.vec4(conic[0], conic[1], conic[2], opacity * h_convolution_scaling)
-    
     # Store tile information
     tiles_touched[i] = (rect_max_y - rect_min_y) * (rect_max_x - rect_min_x)
 
@@ -455,7 +454,7 @@ def wp_duplicate_with_keys(
     points_xy_image: wp.array(dtype=wp.vec2),
     depths: wp.array(dtype=float),
     point_offsets: wp.array(dtype=int),
-    point_list_keys_unsorted: wp.array(dtype=int),
+    point_list_keys_unsorted: wp.array(dtype=wp.int64),
     point_list_unsorted: wp.array(dtype=int),
     radii: wp.array(dtype=int),
     tile_grid: wp.vec3
@@ -481,8 +480,15 @@ def wp_duplicate_with_keys(
     for y in range(rect_min_y, rect_max_y):
         for x in range(rect_min_x, rect_max_x):
             tile_id = y * int(tile_grid[0]) + x
-            # key = tile_id << 32 | float_as_uint32(depth)
-            key = (tile_id << 32) | wp.int32(depth_val)
+            # print(tile_id)
+            # print(0)
+            # Convert to int64 to avoid overflow during bit shift
+            tile_id_64 = wp.int64(tile_id)
+            shifted = tile_id_64 << wp.int64(32)
+            # print(shifted)
+            # Combine tile ID and depth into single key
+            key = wp.int64(shifted) | wp.int64(depth_val)
+            # print(key)
 
             point_list_keys_unsorted[offset] = key
             point_list_unsorted[offset] = tid
@@ -529,6 +535,12 @@ def wp_prefix_sum(input_array: wp.array(dtype=int),
         for i in range(1, input_array.shape[0]):
             output_array[i] = output_array[i-1] + input_array[i]
 
+@wp.kernel
+def wp_copy_from_to(src: wp.array, dst: wp.array, count: int):
+    i = wp.tid()
+    if i < count:
+        dst[i] = src[i]
+
 def render_gaussians(
     background,
     means3D,
@@ -548,6 +560,7 @@ def render_gaussians(
     campos=None,
     prefiltered=False,
     antialiasing=False,
+    clamped=True,
     debug=False
 ):
     """Render 3D Gaussians using Warp.
@@ -571,6 +584,7 @@ def render_gaussians(
         campos: Camera position tensor of shape (3,)
         prefiltered: Whether input Gaussians are prefiltered
         antialiasing: Whether to apply antialiasing
+        clamped: Whether to clamp the colors
         debug: Whether to print debug information
         
     Returns:
@@ -623,12 +637,11 @@ def render_gaussians(
     radii = wp.zeros(num_points, dtype=int)
     points_xy_image = wp.zeros(num_points, dtype=wp.vec2)
     depths = wp.zeros(num_points, dtype=float)
-    cov3Ds = wp.zeros(num_points, dtype=vec6)
+    cov3Ds = wp.zeros(num_points, dtype=VEC6)
     rgb = wp.zeros(num_points, dtype=wp.vec3)
     conic_opacity = wp.zeros(num_points, dtype=wp.vec4)
     tiles_touched = wp.zeros(num_points, dtype=int)
     
-    clamped = True  # Default to clamped colors
     
     if debug:
         print(f"\nWARP RENDERING: {image_width}x{image_height} image, {num_points} gaussians")
@@ -670,98 +683,115 @@ def render_gaussians(
         ]
     )
     
-    print(tiles_touched)
+    # point_offsets = wp.zeros(num_points, dtype=int)
+    # wp.launch(
+    #     kernel=wp_prefix_sum,
+    #     dim=1,
+    #     inputs=[
+    #         tiles_touched,
+    #         point_offsets
+    #     ]
+    # )
+
+    # num_rendered = int(wp.to_torch(point_offsets)[-1].item())  # total number of duplicated entries
     
-    # 1. Prefix sum: compute offsets for duplication
-    point_offsets = wp.zeros(num_points, dtype=int)
-    wp.launch(
-        kernel=wp_prefix_sum,
-        dim=1,
-        inputs=[
-            tiles_touched,
-            point_offsets
-        ]
-    )
+    # point_list_keys_unsorted = wp.zeros(num_rendered, dtype=wp.int64)
+    # point_list_unsorted = wp.zeros(num_rendered, dtype=int)
+    # point_list_keys = wp.zeros(num_rendered, dtype=int)
+    # point_list = wp.zeros(num_rendered, dtype=int)
+    # wp.launch(
+    #     kernel=wp_duplicate_with_keys,
+    #     dim=num_points,
+    #     inputs=[
+    #         points_xy_image,
+    #         depths,
+    #         point_offsets,
+    #         point_list_keys_unsorted,
+    #         point_list_unsorted,
+    #         radii,
+    #         tile_grid
+    #     ]
+    # )
 
-    num_rendered = int(wp.to_torch(point_offsets)[-1].item())  # total number of duplicated entries
-
-    # 2. Allocate binning buffers
-    point_list_keys_unsorted = wp.zeros(num_rendered, dtype=int)
-    point_list_unsorted = wp.zeros(num_rendered, dtype=int)
-    point_list_keys = wp.zeros(num_rendered, dtype=int)
-    point_list = wp.zeros(num_rendered, dtype=int)
-
-    # 3. Duplicate with keys (your kernel should be implemented like the C++ one)
-    wp.launch(
-        kernel=wp_duplicate_with_keys,  # You need to define this kernel
-        dim=num_points,
-        inputs=[
-            points_xy_image,
-            depths,
-            point_offsets,
-            point_list_keys_unsorted,
-            point_list_unsorted,
-            radii,
-            tile_grid
-        ]
-    )
-
-    # 4. Sort by key using Warp's radix sort
-    # Allocate extra space (2x) for sorting
-    point_list_keys_unsorted_padded = wp.zeros(num_rendered * 2, dtype=int) 
-    point_list_unsorted_padded = wp.zeros(num_rendered * 2, dtype=int)
+    # # Allocate extra space (2x) for sorting
+    # point_list_keys_unsorted_padded = wp.zeros(num_rendered * 2, dtype=wp.int64) 
+    # point_list_unsorted_padded = wp.zeros(num_rendered * 2, dtype=int)
     
-    # Copy data to padded arrays
-    wp.copy(point_list_keys_unsorted_padded, point_list_keys_unsorted)
-    wp.copy(point_list_unsorted_padded, point_list_unsorted)
+    # # Copy data to padded arrays
+    # wp.copy(point_list_keys_unsorted_padded, point_list_keys_unsorted)
+    # wp.copy(point_list_unsorted_padded, point_list_unsorted)
+    # # print(point_list_keys_unsorted)
+    # # print(point_list_keys_unsorted_padded)
     
-    wp.utils.radix_sort_pairs(
-        point_list_keys_unsorted_padded,  # keys to sort
-        point_list_unsorted_padded,       # values to sort along with keys
-        num_rendered                      # number of elements to sort
-    )
-    wp.copy(point_list_keys, point_list_keys_unsorted)
-    wp.copy(point_list, point_list_unsorted)
+    # wp.utils.radix_sort_pairs(
+    #     point_list_keys_unsorted_padded,  # keys to sort
+    #     point_list_unsorted_padded,       # values to sort along with keys
+    #     num_rendered                      # number of elements to sort
+    # )
+    
+    # # back to original length
+    # wp.copy(point_list_keys, point_list_keys_unsorted, count=num_rendered)
+    # wp.copy(point_list, point_list_unsorted, count=num_rendered)
+    
+    # wp.launch(
+    #     kernel=wp_copy_from_to,
+    #     dim=num_rendered,
+    #     inputs=[
+    #         point_list_keys_unsorted,
+    #         point_list_keys,
+    #         num_rendered
+    #     ]
+    # )
+    
+    # wp.launch(
+    #     kernel=wp_copy_from_to,
+    #     dim=num_rendered, 
+    #     inputs=[
+    #         point_list_unsorted,
+    #         point_list,
+    #         num_rendered
+    #     ]
+    # )
+    
 
-    # 5. Compute tile ranges
     tile_count = int(tile_grid[0] * tile_grid[1])
     ranges = wp.zeros(tile_count, dtype=wp.vec2i)  # each is (start, end)
 
-    if num_rendered > 0:
-        wp.launch(
-            kernel=wp_identify_tile_ranges,  # You also need this kernel
-            dim=num_rendered,
-            inputs=[
-                num_rendered,
-                point_list_keys,
-                ranges
-            ]
-        )
+    # if num_rendered > 0:
+    #     wp.launch(
+    #         kernel=wp_identify_tile_ranges,  # You also need this kernel
+    #         dim=num_rendered,
+    #         inputs=[
+    #             num_rendered,
+    #             point_list_keys,
+    #             ranges
+    #         ]
+    #     )
         
-        # 6. Render tiles in parallel
-        block_x = TILE_M  # Use the tile size defined in config
-        block_y = TILE_N
-        num_tiles = tile_count
+    #     # 6. Render tiles in parallel
+    #     block_x = TILE_M  # Use the tile size defined in config
+    #     block_y = TILE_N
+    #     num_tiles = tile_count
         
-        wp.launch(
-            kernel=wp_render_gaussians,
-            dim=num_tiles * block_x * block_y,
-            inputs=[
-                rendered_image,        # Output color image
-                depth_image,           # Output depth image
-                ranges,                # Tile ranges
-                point_list,            # Sorted point indices
-                image_width,           # Image width
-                image_height,          # Image height
-                points_xy_image,       # 2D points
-                rgb,                   # Precomputed colors
-                conic_opacity,         # Conic matrices and opacities
-                depths,                # Depth values
-                background_warp,       # Background color
-                tile_grid,             # Tile grid configuration
-                block_x,               # Block X dimension
-                block_y                # Block Y dimension
-            ]
-        )
+    #     wp.launch(
+    #         kernel=wp_render_gaussians,
+    #         dim=num_tiles * block_x * block_y,
+    #         inputs=[
+    #             rendered_image,        # Output color image
+    #             depth_image,           # Output depth image
+    #             ranges,                # Tile ranges
+    #             point_list,            # Sorted point indices
+    #             image_width,           # Image width
+    #             image_height,          # Image height
+    #             points_xy_image,       # 2D points
+    #             rgb,                   # Precomputed colors
+    #             conic_opacity,         # Conic matrices and opacities
+    #             depths,                # Depth values
+    #             background_warp,       # Background color
+    #             tile_grid,             # Tile grid configuration
+    #             block_x,               # Block X dimension
+    #             block_y                # Block Y dimension
+    #         ]
+    #     )
     
     return rendered_image, depth_image
