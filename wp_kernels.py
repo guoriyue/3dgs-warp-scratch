@@ -767,7 +767,9 @@ def render_gaussians(
                 ranges
             ]
         )
-        
+        print("num_rendered", num_rendered)
+        print("tile_count", tile_count)
+        print("ranges", ranges)
         # 6. Render tiles in parallel
         block_x = TILE_M  # Use the tile size defined in config
         block_y = TILE_N
