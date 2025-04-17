@@ -94,16 +94,9 @@ if __name__ == "__main__":
 
     # Convert the rendered image from device to host
     rendered_array = wp.to_torch(rendered_image).cpu().numpy()
-    # # Display and save using matplotlib
-    # plt.figure(figsize=(10, 10))
-    # plt.imshow(rendered_array)
-    # plt.axis('off')
-    # plt.savefig("gaussian_render.png", bbox_inches='tight', dpi=150)
-    import matplotlib.pyplot as plt
-    # for i in range(rendered_array.shape[0]):
-    #     for j in range(rendered_array.shape[1]):
-    #         if rendered_array[i, j, 0] != 0.0:
-    #             print("rendered_array[i, j, :] i, j", i, j, rendered_array[i, j, :])
+    # Display and save using matplotlib
+    plt.figure(figsize=(10, 10))
     plt.imshow(rendered_array)
-    plt.show()
+    plt.axis('off')
+    plt.savefig("gaussian_render.png", bbox_inches='tight', dpi=150)
 
