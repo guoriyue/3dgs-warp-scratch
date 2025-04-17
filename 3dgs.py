@@ -310,6 +310,10 @@ class Rasterizer:
                 # get final color
                 for ch in range(3):
                     out_color[j, i, ch] = C[ch] + T * bg_color[ch]
+                
+                # print("j, i, out_color[j, i, :]", j, i, out_color[j, i, :])
+                if out_color[j, i, 0] != 0.0:
+                    print("out_color[j, i, :] j, i", j, i, out_color[j, i, :])
 
         return out_color
 
@@ -410,6 +414,5 @@ if __name__ == "__main__":
     )
 
     import matplotlib.pyplot as plt
-
     plt.imshow(out_color)
     plt.show()

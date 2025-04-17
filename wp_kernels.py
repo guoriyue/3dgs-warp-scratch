@@ -349,28 +349,24 @@ def wp_render_gaussians(
     
     # Tile grid info
     tile_grid: wp.vec3,
-    
-    # Block dimensions
-    block_x: int,
-    block_y: int
 ):
     # Get thread indices
-    tid_x = wp.tid() % block_x
-    tid_y = wp.tid() // block_x
+    tid_x = wp.tid() % TILE_M
+    tid_y = wp.tid() // TILE_M
     
     # Calculate tile index
-    horizontal_blocks = (W + block_x - 1) // block_x
+    horizontal_blocks = (W + TILE_M - 1) // TILE_M
     tile_x = wp.tid() % horizontal_blocks
     tile_y = wp.tid() // horizontal_blocks
     
-    if tile_y >= (H + block_y - 1) // block_y:
+    if tile_y >= (H + TILE_N - 1) // TILE_N:
         return
     
     # Calculate pixel boundaries for this tile
-    pix_min_x = tile_x * block_x
-    pix_min_y = tile_y * block_y
-    pix_max_x = wp.min(pix_min_x + block_x, W)
-    pix_max_y = wp.min(pix_min_y + block_y, H)
+    pix_min_x = tile_x * TILE_M
+    pix_min_y = tile_y * TILE_N
+    pix_max_x = wp.min(pix_min_x + TILE_M, W)
+    pix_max_y = wp.min(pix_min_y + TILE_N, H)
     
     # Calculate pixel position for this thread
     pix_x = pix_min_x + tid_x
@@ -381,7 +377,6 @@ def wp_render_gaussians(
     if not inside:
         return
     
-    pix_id = W * pix_y + pix_x
     pixf_x = float(pix_x)
     pixf_y = float(pix_y)
     
@@ -394,7 +389,7 @@ def wp_render_gaussians(
     T = float(1.0)  # Transmittance
     r, g, b = float(0.0), float(0.0), float(0.0)  # Accumulated color
     expected_inv_depth = float(0.0)  # For depth calculation
-    
+   
     # Iterate over all Gaussians influencing this tile
     for i in range(range_start, range_end):
         # Get Gaussian ID
@@ -439,6 +434,14 @@ def wp_render_gaussians(
         # Update transmittance
         T = test_T
     
+    if pix_y == 101 and pix_x == 0:
+        print(range_start)
+        print(range_end)
+        print(T)
+        print(r)
+        print(g)
+        print(b)
+        print(expected_inv_depth)
     # Write final color to output buffer (color + background)
     rendered_image[pix_y, pix_x] = wp.vec3(
         r + T * background[0],
@@ -753,7 +756,6 @@ def render_gaussians(
         ]
     )
     
-
     tile_count = int(tile_grid[0] * tile_grid[1])
     ranges = wp.zeros(tile_count, dtype=wp.vec2i)  # each is (start, end)
 
@@ -767,17 +769,13 @@ def render_gaussians(
                 ranges
             ]
         )
-        print("num_rendered", num_rendered)
-        print("tile_count", tile_count)
-        print("ranges", ranges)
+        
         # 6. Render tiles in parallel
-        block_x = TILE_M  # Use the tile size defined in config
-        block_y = TILE_N
         num_tiles = tile_count
         
         wp.launch(
             kernel=wp_render_gaussians,
-            dim=num_tiles * block_x * block_y,
+            dim=num_tiles * TILE_M * TILE_N,
             inputs=[
                 rendered_image,        # Output color image
                 depth_image,           # Output depth image
@@ -791,9 +789,6 @@ def render_gaussians(
                 depths,                # Depth values
                 background_warp,       # Background color
                 tile_grid,             # Tile grid configuration
-                block_x,               # Block X dimension
-                block_y                # Block Y dimension
             ]
         )
-    
     return rendered_image, depth_image

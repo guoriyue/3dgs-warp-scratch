@@ -48,7 +48,7 @@ if __name__ == "__main__":
     znear = 0.01
     zfar = 100.0
 
-    # Background color (black as in 3dgs.py)
+    # Background color (white as in 3dgs.py)
     background = np.array([0.0, 0.0, 0.0], dtype=np.float32)
 
     # Scale modifier
@@ -94,13 +94,17 @@ if __name__ == "__main__":
 
     # Convert the rendered image from device to host
     rendered_array = wp.to_torch(rendered_image).cpu().numpy()
-
-    # Filter out low values and ensure colors are in valid range
-    rendered_array = np.where(rendered_array < 0.1, 0.0, rendered_array)
-    rendered_array = np.clip(rendered_array, 0.0, 1.0)
-
-    # Display and save using matplotlib
-    plt.figure(figsize=(10, 10))
+    # # Display and save using matplotlib
+    # plt.figure(figsize=(10, 10))
+    # plt.imshow(rendered_array)
+    # plt.axis('off')
+    # plt.savefig("gaussian_render.png", bbox_inches='tight', dpi=150)
+    import matplotlib.pyplot as plt
+    # print("rendered_array", rendered_array)
+    for i in range(rendered_array.shape[0]):
+        for j in range(rendered_array.shape[1]):
+            if rendered_array[i, j, 0] != 0.0:
+                print("rendered_array[i, j, :] i, j", i, j, rendered_array[i, j, :])
     plt.imshow(rendered_array)
-    plt.axis('off')
-    plt.savefig("gaussian_render.png", bbox_inches='tight', dpi=150)
+    plt.show()
+
