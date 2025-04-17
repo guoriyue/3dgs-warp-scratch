@@ -8,7 +8,7 @@ Warp 1.7.0 initialized:
 WARP RENDERING: 700x700 image, 3 gaussians
 Colors: provided, SH degree: 3
 Antialiasing: False, Prefiltered: False
-Module wp_kernels 0270891 load on device 'cpu' took 1234.91 ms  (compiled)
+Module wp_kernels bdd0bf4 load on device 'cpu' took 1050.73 ms  (compiled)
 rendered_array[i, j, :] i, j 130 24 [0.00785772 0.00431614 0.0107068 ]
 rendered_array[i, j, :] i, j 130 57 [0.01288557 0.00707787 0.01755767]
 rendered_array[i, j, :] i, j 130 90 [0.01864161 0.01023959 0.02540076]

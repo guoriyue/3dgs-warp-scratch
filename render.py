@@ -100,11 +100,10 @@ if __name__ == "__main__":
     # plt.axis('off')
     # plt.savefig("gaussian_render.png", bbox_inches='tight', dpi=150)
     import matplotlib.pyplot as plt
-    # print("rendered_array", rendered_array)
-    for i in range(rendered_array.shape[0]):
-        for j in range(rendered_array.shape[1]):
-            if rendered_array[i, j, 0] != 0.0:
-                print("rendered_array[i, j, :] i, j", i, j, rendered_array[i, j, :])
+    # for i in range(rendered_array.shape[0]):
+    #     for j in range(rendered_array.shape[1]):
+    #         if rendered_array[i, j, 0] != 0.0:
+    #             print("rendered_array[i, j, :] i, j", i, j, rendered_array[i, j, :])
     plt.imshow(rendered_array)
     plt.show()
 

@@ -350,14 +350,9 @@ def wp_render_gaussians(
     # Tile grid info
     tile_grid: wp.vec3,
 ):
-    # Get thread indices
-    tid_x = wp.tid() % TILE_M
-    tid_y = wp.tid() // TILE_M
+    tile_x, tile_y, tid_x, tid_y = wp.tid()
     
     # Calculate tile index
-    horizontal_blocks = (W + TILE_M - 1) // TILE_M
-    tile_x = wp.tid() % horizontal_blocks
-    tile_y = wp.tid() // horizontal_blocks
     
     if tile_y >= (H + TILE_N - 1) // TILE_N:
         return
@@ -381,7 +376,7 @@ def wp_render_gaussians(
     pixf_y = float(pix_y)
     
     # Get start/end range of IDs to process for this tile
-    tile_id = tile_y * horizontal_blocks + tile_x
+    tile_id = tile_y * int(tile_grid[0]) + tile_x
     range_start = ranges[tile_id][0]
     range_end = ranges[tile_id][1]
     
@@ -389,7 +384,6 @@ def wp_render_gaussians(
     T = float(1.0)  # Transmittance
     r, g, b = float(0.0), float(0.0), float(0.0)  # Accumulated color
     expected_inv_depth = float(0.0)  # For depth calculation
-   
     # Iterate over all Gaussians influencing this tile
     for i in range(range_start, range_end):
         # Get Gaussian ID
@@ -434,14 +428,6 @@ def wp_render_gaussians(
         # Update transmittance
         T = test_T
     
-    if pix_y == 101 and pix_x == 0:
-        print(range_start)
-        print(range_end)
-        print(T)
-        print(r)
-        print(g)
-        print(b)
-        print(expected_inv_depth)
     # Write final color to output buffer (color + background)
     rendered_image[pix_y, pix_x] = wp.vec3(
         r + T * background[0],
@@ -483,15 +469,11 @@ def wp_duplicate_with_keys(
     for y in range(rect_min_y, rect_max_y):
         for x in range(rect_min_x, rect_max_x):
             tile_id = y * int(tile_grid[0]) + x
-            # print(tile_id)
-            # print(0)
             # Convert to int64 to avoid overflow during bit shift
             tile_id_64 = wp.int64(tile_id)
             shifted = tile_id_64 << wp.int64(32)
-            # print(shifted)
             # Combine tile ID and depth into single key
             key = wp.int64(shifted) | wp.int64(depth_val)
-            # print(key)
 
             point_list_keys_unsorted[offset] = key
             point_list_unsorted[offset] = tid
@@ -775,7 +757,7 @@ def render_gaussians(
         
         wp.launch(
             kernel=wp_render_gaussians,
-            dim=num_tiles * TILE_M * TILE_N,
+            dim=(int(tile_grid[0]), int(tile_grid[1]), TILE_M, TILE_N),
             inputs=[
                 rendered_image,        # Output color image
                 depth_image,           # Output depth image
