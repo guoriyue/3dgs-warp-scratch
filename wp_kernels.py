@@ -233,7 +233,7 @@ def wp_preprocess(
     radii: wp.array(dtype=int),
     points_xy_image: wp.array(dtype=wp.vec2),
     depths: wp.array(dtype=float),
-    cov3Ds: wp.array(dtype=VEC6),
+    # cov3Ds: wp.array(dtype=VEC6),
     rgb: wp.array(dtype=wp.vec3),
     conic_opacity: wp.array(dtype=wp.vec4),
     tile_grid: wp.vec3,
@@ -324,222 +324,222 @@ def wp_preprocess(
     # Store tile information
     tiles_touched[i] = (rect_max_y - rect_min_y) * (rect_max_x - rect_min_x)
 
-@wp.kernel
-def wp_render_gaussians(
-    # Output buffers
-    rendered_image: wp.array2d(dtype=wp.vec3),
-    depth_image: wp.array2d(dtype=float),
+# @wp.kernel
+# def wp_render_gaussians(
+#     # Output buffers
+#     rendered_image: wp.array2d(dtype=wp.vec3),
+#     depth_image: wp.array2d(dtype=float),
     
-    # Tile data
-    ranges: wp.array(dtype=wp.vec2i),
-    point_list: wp.array(dtype=int),
+#     # Tile data
+#     ranges: wp.array(dtype=wp.vec2i),
+#     point_list: wp.array(dtype=int),
     
-    # Image parameters
-    W: int,
-    H: int,
+#     # Image parameters
+#     W: int,
+#     H: int,
     
-    # Gaussian data
-    points_xy_image: wp.array(dtype=wp.vec2),
-    colors: wp.array(dtype=wp.vec3),
-    conic_opacity: wp.array(dtype=wp.vec4),
-    depths: wp.array(dtype=float),
+#     # Gaussian data
+#     points_xy_image: wp.array(dtype=wp.vec2),
+#     colors: wp.array(dtype=wp.vec3),
+#     conic_opacity: wp.array(dtype=wp.vec4),
+#     depths: wp.array(dtype=float),
     
-    # Background color
-    background: wp.vec3,
+#     # Background color
+#     background: wp.vec3,
     
-    # Tile grid info
-    tile_grid: wp.vec3,
+#     # Tile grid info
+#     tile_grid: wp.vec3,
     
-    # Block dimensions
-    block_x: int,
-    block_y: int
-):
-    # Get thread indices
-    tid_x = wp.tid() % block_x
-    tid_y = wp.tid() // block_x
+#     # Block dimensions
+#     block_x: int,
+#     block_y: int
+# ):
+#     # Get thread indices
+#     tid_x = wp.tid() % block_x
+#     tid_y = wp.tid() // block_x
     
-    # Calculate tile index
-    horizontal_blocks = (W + block_x - 1) // block_x
-    tile_x = wp.tid() % horizontal_blocks
-    tile_y = wp.tid() // horizontal_blocks
+#     # Calculate tile index
+#     horizontal_blocks = (W + block_x - 1) // block_x
+#     tile_x = wp.tid() % horizontal_blocks
+#     tile_y = wp.tid() // horizontal_blocks
     
-    if tile_y >= (H + block_y - 1) // block_y:
-        return
+#     if tile_y >= (H + block_y - 1) // block_y:
+#         return
     
-    # Calculate pixel boundaries for this tile
-    pix_min_x = tile_x * block_x
-    pix_min_y = tile_y * block_y
-    pix_max_x = wp.min(pix_min_x + block_x, W)
-    pix_max_y = wp.min(pix_min_y + block_y, H)
+#     # Calculate pixel boundaries for this tile
+#     pix_min_x = tile_x * block_x
+#     pix_min_y = tile_y * block_y
+#     pix_max_x = wp.min(pix_min_x + block_x, W)
+#     pix_max_y = wp.min(pix_min_y + block_y, H)
     
-    # Calculate pixel position for this thread
-    pix_x = pix_min_x + tid_x
-    pix_y = pix_min_y + tid_y
+#     # Calculate pixel position for this thread
+#     pix_x = pix_min_x + tid_x
+#     pix_y = pix_min_y + tid_y
     
-    # Check if this thread processes a valid pixel
-    inside = (pix_x < W) and (pix_y < H)
-    if not inside:
-        return
+#     # Check if this thread processes a valid pixel
+#     inside = (pix_x < W) and (pix_y < H)
+#     if not inside:
+#         return
     
-    pix_id = W * pix_y + pix_x
-    pixf_x = float(pix_x)
-    pixf_y = float(pix_y)
+#     pix_id = W * pix_y + pix_x
+#     pixf_x = float(pix_x)
+#     pixf_y = float(pix_y)
     
-    # Get start/end range of IDs to process for this tile
-    tile_id = tile_y * horizontal_blocks + tile_x
-    range_start = ranges[tile_id][0]
-    range_end = ranges[tile_id][1]
+#     # Get start/end range of IDs to process for this tile
+#     tile_id = tile_y * horizontal_blocks + tile_x
+#     range_start = ranges[tile_id][0]
+#     range_end = ranges[tile_id][1]
     
-    # Initialize blending variables
-    T = float(1.0)  # Transmittance
-    r, g, b = float(0.0), float(0.0), float(0.0)  # Accumulated color
-    expected_inv_depth = float(0.0)  # For depth calculation
+#     # Initialize blending variables
+#     T = float(1.0)  # Transmittance
+#     r, g, b = float(0.0), float(0.0), float(0.0)  # Accumulated color
+#     expected_inv_depth = float(0.0)  # For depth calculation
     
-    # Iterate over all Gaussians influencing this tile
-    for i in range(range_start, range_end):
-        # Get Gaussian ID
-        gaussian_id = point_list[i]
+#     # Iterate over all Gaussians influencing this tile
+#     for i in range(range_start, range_end):
+#         # Get Gaussian ID
+#         gaussian_id = point_list[i]
         
-        # Get Gaussian data
-        xy = points_xy_image[gaussian_id]
-        con_o = conic_opacity[gaussian_id]
-        color = colors[gaussian_id]
+#         # Get Gaussian data
+#         xy = points_xy_image[gaussian_id]
+#         con_o = conic_opacity[gaussian_id]
+#         color = colors[gaussian_id]
         
-        # Compute distance to Gaussian center
-        d_x = xy[0] - pixf_x
-        d_y = xy[1] - pixf_y
+#         # Compute distance to Gaussian center
+#         d_x = xy[0] - pixf_x
+#         d_y = xy[1] - pixf_y
         
-        # Compute Gaussian power (exponent)
-        power = -0.5 * (con_o[0] * d_x * d_x + con_o[2] * d_y * d_y) - con_o[1] * d_x * d_y
+#         # Compute Gaussian power (exponent)
+#         power = -0.5 * (con_o[0] * d_x * d_x + con_o[2] * d_y * d_y) - con_o[1] * d_x * d_y
         
-        # Skip if power is positive (too far away)
-        if power > 0.0:
-            continue
+#         # Skip if power is positive (too far away)
+#         if power > 0.0:
+#             continue
         
-        # Compute alpha from power and opacity
-        alpha = wp.min(0.99, con_o[3] * wp.exp(power))
+#         # Compute alpha from power and opacity
+#         alpha = wp.min(0.99, con_o[3] * wp.exp(power))
         
-        # Skip if alpha is too small
-        if alpha < (1.0 / 255.0):
-            continue
+#         # Skip if alpha is too small
+#         if alpha < (1.0 / 255.0):
+#             continue
         
-        # Test if we're close to fully opaque
-        test_T = T * (1.0 - alpha)
-        if test_T < 0.0001:
-            break  # Early termination if pixel is almost opaque
+#         # Test if we're close to fully opaque
+#         test_T = T * (1.0 - alpha)
+#         if test_T < 0.0001:
+#             break  # Early termination if pixel is almost opaque
         
-        # Accumulate color contribution
-        r += color[0] * alpha * T
-        g += color[1] * alpha * T
-        b += color[2] * alpha * T
+#         # Accumulate color contribution
+#         r += color[0] * alpha * T
+#         g += color[1] * alpha * T
+#         b += color[2] * alpha * T
         
-        # Accumulate inverse depth
-        expected_inv_depth += (1.0 / depths[gaussian_id]) * alpha * T
+#         # Accumulate inverse depth
+#         expected_inv_depth += (1.0 / depths[gaussian_id]) * alpha * T
         
-        # Update transmittance
-        T = test_T
+#         # Update transmittance
+#         T = test_T
     
-    # Write final color to output buffer (color + background)
-    rendered_image[pix_y, pix_x] = wp.vec3(
-        r + T * background[0],
-        g + T * background[1],
-        b + T * background[2]
-    )
+#     # Write final color to output buffer (color + background)
+#     rendered_image[pix_y, pix_x] = wp.vec3(
+#         r + T * background[0],
+#         g + T * background[1],
+#         b + T * background[2]
+#     )
     
-    # Write depth to output buffer
-    depth_image[pix_y, pix_x] = expected_inv_depth
+#     # Write depth to output buffer
+#     depth_image[pix_y, pix_x] = expected_inv_depth
 
-@wp.kernel
-def wp_duplicate_with_keys(
-    points_xy_image: wp.array(dtype=wp.vec2),
-    depths: wp.array(dtype=float),
-    point_offsets: wp.array(dtype=int),
-    point_list_keys_unsorted: wp.array(dtype=wp.int64),
-    point_list_unsorted: wp.array(dtype=int),
-    radii: wp.array(dtype=int),
-    tile_grid: wp.vec3
-):
-    tid = wp.tid()
+# @wp.kernel
+# def wp_duplicate_with_keys(
+#     points_xy_image: wp.array(dtype=wp.vec2),
+#     depths: wp.array(dtype=float),
+#     point_offsets: wp.array(dtype=int),
+#     point_list_keys_unsorted: wp.array(dtype=wp.int64),
+#     point_list_unsorted: wp.array(dtype=int),
+#     radii: wp.array(dtype=int),
+#     tile_grid: wp.vec3
+# ):
+#     tid = wp.tid()
 
-    if tid >= points_xy_image.shape[0]:
-        return
+#     if tid >= points_xy_image.shape[0]:
+#         return
 
-    r = radii[tid]
-    if r <= 0:
-        return
+#     r = radii[tid]
+#     if r <= 0:
+#         return
 
-    # Find the global offset into key/value buffers
-    offset = 0
-    if tid > 0:
-        offset = point_offsets[tid - 1]
+#     # Find the global offset into key/value buffers
+#     offset = 0
+#     if tid > 0:
+#         offset = point_offsets[tid - 1]
 
-    pos = points_xy_image[tid]
-    depth_val = depths[tid]
+#     pos = points_xy_image[tid]
+#     depth_val = depths[tid]
 
-    rect_min_x, rect_min_y, rect_max_x, rect_max_y = get_rect(pos, float(r), tile_grid)
-    for y in range(rect_min_y, rect_max_y):
-        for x in range(rect_min_x, rect_max_x):
-            tile_id = y * int(tile_grid[0]) + x
-            # print(tile_id)
-            # print(0)
-            # Convert to int64 to avoid overflow during bit shift
-            tile_id_64 = wp.int64(tile_id)
-            shifted = tile_id_64 << wp.int64(32)
-            # print(shifted)
-            # Combine tile ID and depth into single key
-            key = wp.int64(shifted) | wp.int64(depth_val)
-            # print(key)
+#     rect_min_x, rect_min_y, rect_max_x, rect_max_y = get_rect(pos, float(r), tile_grid)
+#     for y in range(rect_min_y, rect_max_y):
+#         for x in range(rect_min_x, rect_max_x):
+#             tile_id = y * int(tile_grid[0]) + x
+#             # print(tile_id)
+#             # print(0)
+#             # Convert to int64 to avoid overflow during bit shift
+#             tile_id_64 = wp.int64(tile_id)
+#             shifted = tile_id_64 << wp.int64(32)
+#             # print(shifted)
+#             # Combine tile ID and depth into single key
+#             key = wp.int64(shifted) | wp.int64(depth_val)
+#             # print(key)
 
-            point_list_keys_unsorted[offset] = key
-            point_list_unsorted[offset] = tid
-            offset += 1
+#             point_list_keys_unsorted[offset] = key
+#             point_list_unsorted[offset] = tid
+#             offset += 1
             
-@wp.kernel
-def wp_identify_tile_ranges(
-    num_rendered: int,
-    point_list_keys: wp.array(dtype=int),
-    ranges: wp.array(dtype=wp.vec2i)  # Each range is (start, end)
-):
-    idx = wp.tid()
+# @wp.kernel
+# def wp_identify_tile_ranges(
+#     num_rendered: int,
+#     point_list_keys: wp.array(dtype=int),
+#     ranges: wp.array(dtype=wp.vec2i)  # Each range is (start, end)
+# ):
+#     idx = wp.tid()
 
-    if idx >= num_rendered:
-        return
+#     if idx >= num_rendered:
+#         return
 
-    key = point_list_keys[idx]
-    curr_tile = int(key >> 32)
+#     key = point_list_keys[idx]
+#     curr_tile = int(key >> 32)
 
-    # Set start of range if first element or tile changed
-    if idx == 0:
-        ranges[curr_tile][0] = 0
-    else:
-        prev_key = point_list_keys[idx - 1]
-        prev_tile = int(prev_key >> 32)
-        if curr_tile != prev_tile:
-            ranges[prev_tile][1] = idx
-            ranges[curr_tile][0] = idx
+#     # Set start of range if first element or tile changed
+#     if idx == 0:
+#         ranges[curr_tile][0] = 0
+#     else:
+#         prev_key = point_list_keys[idx - 1]
+#         prev_tile = int(prev_key >> 32)
+#         if curr_tile != prev_tile:
+#             ranges[prev_tile][1] = idx
+#             ranges[curr_tile][0] = idx
 
-    # Set end of range if last element
-    if idx == num_rendered - 1:
-        ranges[curr_tile][1] = num_rendered
+#     # Set end of range if last element
+#     if idx == num_rendered - 1:
+#         ranges[curr_tile][1] = num_rendered
 
 
-@wp.kernel
-def wp_prefix_sum(input_array: wp.array(dtype=int),
-                      output_array: wp.array(dtype=int)):
-    tid = wp.tid()
+# @wp.kernel
+# def wp_prefix_sum(input_array: wp.array(dtype=int),
+#                       output_array: wp.array(dtype=int)):
+#     tid = wp.tid()
     
-    if tid == 0:
-        output_array[0] = input_array[0]
+#     if tid == 0:
+#         output_array[0] = input_array[0]
         
-        # Perform prefix sum
-        for i in range(1, input_array.shape[0]):
-            output_array[i] = output_array[i-1] + input_array[i]
+#         # Perform prefix sum
+#         for i in range(1, input_array.shape[0]):
+#             output_array[i] = output_array[i-1] + input_array[i]
 
-@wp.kernel
-def wp_copy_from_to(src: wp.array, dst: wp.array, count: int):
-    i = wp.tid()
-    if i < count:
-        dst[i] = src[i]
+# @wp.kernel
+# def wp_copy_from_to(src: wp.array, dst: wp.array, count: int):
+#     i = wp.tid()
+#     if i < count:
+#         dst[i] = src[i]
 
 def render_gaussians(
     background,
@@ -651,7 +651,7 @@ def render_gaussians(
     # Launch preprocessing kernel
     wp.launch(
         kernel=wp_preprocess,
-        dim=num_points,
+        dim=(num_points,),
         inputs=[
             points_warp,               # orig_points
             scales_warp,               # scales
@@ -673,15 +673,16 @@ def render_gaussians(
             radii,                     # radii
             points_xy_image,           # points_xy_image
             depths,                    # depths
-            cov3Ds,                    # cov3Ds
+            # cov3Ds,                    # cov3Ds
             rgb,                       # rgb
             conic_opacity,             # conic_opacity
             tile_grid,                 # tile_grid
             tiles_touched,             # tiles_touched
             prefiltered,               # prefiltered
             antialiasing               # antialiasing
-        ]
+        ],
     )
+    return None, None
     
     # point_offsets = wp.zeros(num_points, dtype=int)
     # wp.launch(
@@ -754,8 +755,8 @@ def render_gaussians(
     # )
     
 
-    tile_count = int(tile_grid[0] * tile_grid[1])
-    ranges = wp.zeros(tile_count, dtype=wp.vec2i)  # each is (start, end)
+    # tile_count = int(tile_grid[0] * tile_grid[1])
+    # ranges = wp.zeros(tile_count, dtype=wp.vec2i)  # each is (start, end)
 
     # if num_rendered > 0:
     #     wp.launch(
@@ -794,4 +795,4 @@ def render_gaussians(
     #         ]
     #     )
     
-    return rendered_image, depth_image
+    # return rendered_image, depth_image
