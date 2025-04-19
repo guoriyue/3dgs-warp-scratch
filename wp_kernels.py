@@ -293,8 +293,7 @@ def wp_preprocess(
         cov_with_blur[0] * det_inv
     )
     # Compute eigenvalues of covariance matrix to find screen-space extent
-    # mid = 0.5 * (cov_with_blur[0] + cov_with_blur[2])
-    mid = 0.5 * (cov_with_blur[0] + cov_with_blur[1])
+    mid = 0.5 * (cov_with_blur[0] + cov_with_blur[2])
     lambda1 = mid + wp.sqrt(wp.max(0.1, mid * mid - det))
     lambda2 = mid - wp.sqrt(wp.max(0.1, mid * mid - det))
     my_radius = wp.ceil(3.0 * wp.sqrt(wp.max(lambda1, lambda2)))
