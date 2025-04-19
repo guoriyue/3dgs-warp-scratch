@@ -15,27 +15,7 @@ wp.init()
 def load_gaussians_from_path(input_path):
     """Load Gaussian data from the specified path"""
     if input_path.endswith('.ply'):
-        # Load directly from PLY file
         return load_ply(input_path)
-    elif os.path.isdir(input_path):
-        # Load from directory containing separate files
-        # This is a placeholder - implement based on your data format
-        print(f"Loading data from directory: {input_path}")
-        # Example implementation:
-        pts_path = os.path.join(input_path, "points.npy")
-        shs_path = os.path.join(input_path, "sh.npy")
-        scales_path = os.path.join(input_path, "scales.npy")
-        rotations_path = os.path.join(input_path, "rotations.npy")
-        opacities_path = os.path.join(input_path, "opacities.npy")
-        
-        # Load if files exist
-        pts = np.load(pts_path) if os.path.exists(pts_path) else None
-        shs = np.load(shs_path) if os.path.exists(shs_path) else None
-        scales = np.load(scales_path) if os.path.exists(scales_path) else None
-        rotations = np.load(rotations_path) if os.path.exists(rotations_path) else None
-        opacities = np.load(opacities_path) if os.path.exists(opacities_path) else None
-        
-        return pts, shs, scales, rotations, opacities
     else:
         raise ValueError(f"Unsupported input path format: {input_path}")
 
@@ -195,13 +175,13 @@ if __name__ == "__main__":
     if args.input_path:
         # Load Gaussians from provided path
         try:
-            pts, shs, scales, rotations, opacities = load_gaussians_from_path(args.input_path)
+            pts, scales, rotations, opacities, colors, shs = load_gaussians_from_path(f"{args.input_path}/input.ply")
             n = len(pts)
             print(f"Loaded {n} Gaussians from {args.input_path}")
             
             # Try to load camera from cameras.json
-            camera_params = load_camera_from_json(args.input_path)
-            
+            camera_params = load_camera_from_json(f"{args.input_path}/cameras.json" )
+   
             # If no camera found, use default camera
             if camera_params is None:
                 camera_params = setup_example_camera(
