@@ -48,7 +48,6 @@ def compute_color_from_sh(
     Returns:
         RGB color as vec3
     """
-    # Constants for spherical harmonics (copied from render_python/sh.py)
     SH_C0 = 0.28209479177387814
     SH_C1 = 0.4886025119029199
     
@@ -86,7 +85,6 @@ def compute_color_from_sh(
                    + 0.5462742152960396 * (xx - yy) * shs[base_idx + 8]
                    
             if degree > 2:
-                # Degree 3 terms using exact same constants as in render_python/sh.py
                 result = result \
                        + (-0.5900435899266435) * y * (3.0 * xx - yy) * shs[base_idx + 9] \
                        + 2.890611442640554 * xy * z * shs[base_idx + 10] \
@@ -306,7 +304,6 @@ def wp_preprocess(
     # Skip if rectangle has 0 area
     if (rect_max_x - rect_min_x) * (rect_max_y - rect_min_y) == 0:
         return
-    # print(shs)
     # Compute color from spherical harmonics
     result = compute_color_from_sh(i, orig_points, cam_pos, shs, 3, clamped)
 
@@ -751,7 +748,6 @@ def render_gaussians(
             ]
         )
         
-        # 6. Render tiles in parallel
         num_tiles = tile_count
         
         wp.launch(

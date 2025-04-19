@@ -3,7 +3,6 @@ import warp as wp
 import matplotlib.pyplot as plt
 import math
 from wp_kernels import render_gaussians, wp_world_to_view, wp_projection_matrix
-import imageio
 from config import *
 
 # Initialize Warp
@@ -13,7 +12,7 @@ if __name__ == "__main__":
     pts = np.array([[2, 0, -2], [0, 2, -2], [-2, 0, -2]], dtype=np.float32)
     n = len(pts)
     # shs = np.random.random((n, 16, 3))
-    # randomly generate shs, hard code here for debugging
+    # we hard code a random shs here for debugging
     shs = np.array([[0.71734341, 0.91905449, 0.49961076],
                 [0.08068483, 0.82132256, 0.01301602],
                 [0.8335743,  0.31798138, 0.19709007],
@@ -30,12 +29,11 @@ if __name__ == "__main__":
                 [0.08934335, 0.11851827, 0.04186001],
                 [0.59331831, 0.919777,   0.71364335],
                 [0.83377388, 0.40242542, 0.8792624 ]]*n).reshape(n, 16, 3) 
-    opacities = np.ones((n, 1), dtype=np.float32)  # Match 3dgs.py format exactly
+    opacities = np.ones((n, 1), dtype=np.float32)
 
     scales = np.ones((n, 3), dtype=np.float32)
     rotations = np.array([np.eye(3)] * n, dtype=np.float32)
 
-    # Set camera parameters exactly like in 3dgs.py
     camera_pos = np.array([0, 0, 5], dtype=np.float32)
     R = np.array([[1, 0, 0], [0, 1, 0], [0, 0, -1]], dtype=np.float32)
 
@@ -48,10 +46,7 @@ if __name__ == "__main__":
     znear = 0.01
     zfar = 100.0
 
-    # Background color (white as in 3dgs.py)
     background = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-
-    # Scale modifier
     scale_modifier = 1.0
     
     

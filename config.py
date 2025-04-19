@@ -10,7 +10,8 @@ WP_INT = wp.int32
 WP_VEC2 = wp.vec2
 WP_VEC2H = wp.vec2h
 
-DEVICE = "cuda:0"  # "cpu"
+# DEVICE = "cuda:0"  # "cpu"
+DEVICE = "cpu"
 TORCH_FLOAT = torch.float32
 
 
