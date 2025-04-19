@@ -2,7 +2,8 @@ import numpy as np
 import warp as wp
 import matplotlib.pyplot as plt
 import math
-from wp_kernels import render_gaussians, wp_world_to_view, wp_projection_matrix
+from wp_kernels import render_gaussians
+from utils import world_to_view, projection_matrix, load_ply
 from config import *
 
 # Initialize Warp
@@ -50,8 +51,8 @@ if __name__ == "__main__":
     scale_modifier = 1.0
     
     
-    view_matrix = wp_world_to_view(R=R, t=camera_pos)
-    proj_matrix = wp_projection_matrix(fovx=fovx, fovy=fovy, znear=znear, zfar=zfar)
+    view_matrix = world_to_view(R=R, t=camera_pos)
+    proj_matrix = projection_matrix(fovx=fovx, fovy=fovy, znear=znear, zfar=zfar)
     proj_matrix = np.dot(proj_matrix, view_matrix)
     
     
