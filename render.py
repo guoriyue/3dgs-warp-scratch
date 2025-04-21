@@ -175,12 +175,14 @@ if __name__ == "__main__":
     if args.input_path:
         # Load Gaussians from provided path
         try:
-            pts, scales, rotations, opacities, colors, shs = load_gaussians_from_path(f"{args.input_path}/input.ply")
+            # pts, scales, rotations, opacities, colors, shs = load_gaussians_from_path(f"{args.input_path}/input.ply")
+            pts, scales, rotations, opacities, colors, shs = load_gaussians_from_path(f"/Users/guomingfei/Desktop/warp-nerf-scratch/playroom/point_cloud/iteration_30000/point_cloud.ply")
+            
             n = len(pts)
             print(f"Loaded {n} Gaussians from {args.input_path}")
             
             # Try to load camera from cameras.json
-            camera_params = load_camera_from_json(f"{args.input_path}/cameras.json" )
+            camera_params = load_camera_from_json(f"{args.input_path}/cameras.json", camera_id=1)
    
             # If no camera found, use default camera
             if camera_params is None:

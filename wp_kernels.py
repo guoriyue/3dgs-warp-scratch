@@ -492,6 +492,176 @@ def wp_copy_int(src: wp.array(dtype=int), dst: wp.array(dtype=int), count: int):
     if i < count:
         dst[i] = src[i]
 
+@wp.kernel
+def wp_copy_chunks(src_keys: wp.array(dtype=wp.int64), 
+                  src_vals: wp.array(dtype=int),
+                  dst_keys: wp.array(dtype=wp.int64),
+                  dst_vals: wp.array(dtype=int),
+                  chunk_start: int, 
+                  chunk_size: int):
+    i = wp.tid()
+    
+    # Don't go beyond array bounds
+    if i >= chunk_size:
+        return
+        
+    global_idx = chunk_start + i
+    
+    # Copy data from source to destination
+    dst_keys[global_idx] = src_keys[global_idx]
+    dst_vals[global_idx] = src_vals[global_idx]
+
+def chunk_radix_sort_pairs(keys: wp.array, values: wp.array, count: int, max_chunk_size: int = 1000000000):
+    """
+    Sort large arrays in chunks to overcome the 2^32 element limitation.
+    
+    Args:
+        keys: Array of keys to sort
+        values: Array of values to sort based on keys
+        count: Number of elements to sort
+        max_chunk_size: Maximum chunk size (default to 1 billion, well under 2^32)
+    """
+    # Create temporary buffers for sorting
+    temp_keys = wp.zeros_like(keys)
+    temp_vals = wp.zeros_like(values)
+    
+    # Determine number of chunks
+    num_chunks = (count + max_chunk_size - 1) // max_chunk_size
+    
+    print(f"Sorting {count} elements in {num_chunks} chunks")
+    
+    # Sort each chunk individually
+    for i in range(num_chunks):
+        chunk_start = i * max_chunk_size
+        chunk_size = min(max_chunk_size, count - chunk_start)
+        
+        print(f"Sorting chunk {i+1}/{num_chunks}, size: {chunk_size}")
+        
+        # Extract chunk data for sorting
+        # Use our custom kernel to extract only the portion we need
+        wp.launch(
+            kernel=wp_copy_chunks,
+            dim=chunk_size,
+            inputs=[keys, values, temp_keys, temp_vals, chunk_start, chunk_size]
+        )
+        
+        # Sort this chunk (use radix sort)
+        wp.utils.radix_sort_pairs(
+            temp_keys,
+            temp_vals,
+            chunk_size
+        )
+        
+        # Copy sorted chunk back to original arrays
+        wp.launch(
+            kernel=wp_copy_chunks,
+            dim=chunk_size,
+            inputs=[temp_keys, temp_vals, keys, values, chunk_start, chunk_size]
+        )
+    
+    # If we have multiple chunks, we need to merge them
+    if num_chunks > 1:
+        merge_sorted_chunks(keys, values, temp_keys, temp_vals, count, max_chunk_size, num_chunks)
+
+@wp.kernel
+def wp_merge_arrays(
+    keys_A: wp.array(dtype=wp.int64),
+    vals_A: wp.array(dtype=int),
+    keys_B: wp.array(dtype=wp.int64),
+    vals_B: wp.array(dtype=int),
+    merged_keys: wp.array(dtype=wp.int64),
+    merged_vals: wp.array(dtype=int),
+    size_A: int,
+    size_B: int
+):
+    tid = wp.tid()
+    
+    total_size = size_A + size_B
+    if tid >= total_size:
+        return
+    
+    i, j = 0, 0
+    
+    # For each thread, find the correct position in the merged array
+    for k in range(total_size):
+        if i < size_A and (j >= size_B or keys_A[i] <= keys_B[j]):
+            if k == tid:
+                merged_keys[tid] = keys_A[i]
+                merged_vals[tid] = vals_A[i]
+                return
+            i += 1
+        else:
+            if k == tid:
+                merged_keys[tid] = keys_B[j]
+                merged_vals[tid] = vals_B[j]
+                return
+            j += 1
+
+def merge_sorted_chunks(keys: wp.array, values: wp.array, temp_keys: wp.array, temp_vals: wp.array, 
+                        count: int, chunk_size: int, num_chunks: int):
+    """
+    Merge multiple sorted chunks into a single sorted array.
+    
+    This is a simplified implementation that could be made more efficient.
+    For very large arrays (approaching 2^64), more sophisticated merging would be needed.
+    """
+    # For simplicity, we'll merge adjacent chunks in pairs
+    merged_size = chunk_size * 2
+    
+    # Temporary buffer for the final merged result
+    final_keys = wp.zeros_like(keys)
+    final_vals = wp.zeros_like(values)
+    
+    # First pass: merge pairs of chunks
+    for i in range(0, num_chunks, 2):
+        chunk1_start = i * chunk_size
+        chunk1_size = min(chunk_size, count - chunk1_start)
+        
+        # Check if there's a second chunk to merge with
+        if i + 1 < num_chunks:
+            chunk2_start = (i + 1) * chunk_size
+            chunk2_size = min(chunk_size, count - chunk2_start)
+            
+            # Extract the first chunk data
+            wp.launch(
+                kernel=wp_copy_chunks,
+                dim=chunk1_size,
+                inputs=[keys, values, temp_keys, temp_vals, chunk1_start, chunk1_size]
+            )
+            
+            # Extract the second chunk data
+            wp.launch(
+                kernel=wp_copy_chunks,
+                dim=chunk2_size,
+                inputs=[keys, values, temp_keys[chunk_size:], temp_vals[chunk_size:], 
+                       chunk2_start, chunk2_size]
+            )
+            
+            # Merge the two chunks
+            merged_size = chunk1_size + chunk2_size
+            wp.launch(
+                kernel=wp_merge_arrays,
+                dim=merged_size,
+                inputs=[
+                    temp_keys[:chunk1_size], temp_vals[:chunk1_size],
+                    temp_keys[chunk_size:chunk_size+chunk2_size], temp_vals[chunk_size:chunk_size+chunk2_size],
+                    final_keys[chunk1_start:chunk1_start+merged_size], 
+                    final_vals[chunk1_start:chunk1_start+merged_size],
+                    chunk1_size, chunk2_size
+                ]
+            )
+        else:
+            # If there's no second chunk, just copy the first chunk to the final result
+            wp.launch(
+                kernel=wp_copy_chunks,
+                dim=chunk1_size,
+                inputs=[keys, values, final_keys, final_vals, chunk1_start, chunk1_size]
+            )
+    
+    # Copy the merged result back to the original arrays
+    wp.copy(keys, final_keys)
+    wp.copy(values, final_vals)
+
 def render_gaussians(
     background,
     means3D,
@@ -672,11 +842,21 @@ def render_gaussians(
     wp.copy(point_list_keys_unsorted_padded, point_list_keys_unsorted)
     wp.copy(point_list_unsorted_padded, point_list_unsorted)
     
-    wp.utils.radix_sort_pairs(
-        point_list_keys_unsorted_padded,  # keys to sort
-        point_list_unsorted_padded,       # values to sort along with keys
-        num_rendered                      # number of elements to sort
-    )
+    if num_rendered > (1 << 32):
+        # Use our new chunk-based sorting approach
+        chunk_radix_sort_pairs(
+            point_list_keys_unsorted_padded,
+            point_list_unsorted_padded,
+            num_rendered
+        )
+    else:
+        # warp radix sort only supports 2^32 elements
+        # Use standard Warp radix sort for smaller arrays
+        wp.utils.radix_sort_pairs(
+            point_list_keys_unsorted_padded,  # keys to sort
+            point_list_unsorted_padded,       # values to sort along with keys
+            num_rendered                      # number of elements to sort
+        )
     
     wp.launch(
         kernel=wp_copy_int64,
