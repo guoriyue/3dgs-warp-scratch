@@ -492,6 +492,12 @@ def wp_copy_int(src: wp.array(dtype=int), dst: wp.array(dtype=int), count: int):
     if i < count:
         dst[i] = src[i]
 
+@wp.kernel
+def wp_copy_to_chunks(src: wp.array(dtype=wp.int64), dst: wp.array(dtype=wp.int64), src_offset: int, dst_offset: int, count: int):
+    i = wp.tid()
+    if i < count:
+        dst[dst_offset + i] = src[src_offset + i]
+
 
 def chunk_radix_sort_pairs(keys: wp.array(dtype=wp.int64), values: wp.array(dtype=int), count: int, max_chunk_size: int):
     num_chunks = (count + max_chunk_size - 1) // max_chunk_size
@@ -502,6 +508,19 @@ def chunk_radix_sort_pairs(keys: wp.array(dtype=wp.int64), values: wp.array(dtyp
         val_chunk = wp.zeros(max_chunk_size * 2, dtype=int)
         wp.copy(key_chunk, keys[i * max_chunk_size:(i + 1) * max_chunk_size])
         wp.copy(val_chunk, values[i * max_chunk_size:(i + 1) * max_chunk_size])
+        
+        wp.launch(
+            kernel=wp_copy_to_chunks,
+            dim=max_chunk_size, 
+            inputs=[keys, key_chunk, i * max_chunk_size, 0, max_chunk_size]
+        )
+        
+        wp.launch(
+            kernel=wp_copy_to_chunks,
+            dim=max_chunk_size,
+            inputs=[values, val_chunk, i * max_chunk_size, 0, max_chunk_size]
+        )
+        
         wp.utils.radix_sort_pairs(
             key_chunk,
             val_chunk,
