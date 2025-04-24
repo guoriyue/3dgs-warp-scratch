@@ -493,6 +493,36 @@ def wp_copy_int(src: wp.array(dtype=int), dst: wp.array(dtype=int), count: int):
         dst[i] = src[i]
 
 
+def chunk_radix_sort_pairs(keys: wp.array(dtype=wp.int64), values: wp.array(dtype=int), count: int, max_chunk_size: int):
+    num_chunks = (count + max_chunk_size - 1) // max_chunk_size
+    sorted_key_chunks = []
+    sorted_val_chunks = []
+    for i in range(num_chunks):
+        key_chunk = wp.zeros(max_chunk_size * 2, dtype=wp.int64)
+        val_chunk = wp.zeros(max_chunk_size * 2, dtype=int)
+        wp.copy(key_chunk, keys[i * max_chunk_size:(i + 1) * max_chunk_size])
+        wp.copy(val_chunk, values[i * max_chunk_size:(i + 1) * max_chunk_size])
+        wp.utils.radix_sort_pairs(
+            key_chunk,
+            val_chunk,
+            max_chunk_size * 2
+        )
+        sorted_key_chunk = wp.zeros(max_chunk_size, dtype=wp.int64)
+        sorted_val_chunk = wp.zeros(max_chunk_size, dtype=int)
+        wp.copy(sorted_key_chunk, key_chunk[:max_chunk_size])
+        wp.copy(sorted_val_chunk, val_chunk[:max_chunk_size])
+        sorted_key_chunks.append(sorted_key_chunk)
+        sorted_val_chunks.append(sorted_val_chunk)
+
+    return merge_sorted_chunks(sorted_key_chunks, sorted_val_chunks, count, max_chunk_size, num_chunks)
+
+def merge_sorted_chunks(sorted_key_chunks: list, sorted_val_chunks: list, count: int, max_chunk_size: int, num_chunks: int):
+    sorted_keys = wp.zeros(count, dtype=wp.int64)
+    sorted_values = wp.zeros(count, dtype=int)
+    
+    
+    return sorted_keys, sorted_values
+
 def render_gaussians(
     background,
     means3D,
@@ -667,9 +697,10 @@ def render_gaussians(
 
    
     print(f"Number of rendered gaussians: {num_rendered}")
-    if num_rendered > (1 << 30):
+    if False:
+    # if num_rendered > (1 << 30):
         # Use our new chunk-based sorting approach
-        chunk_radix_sort_pairs(
+        point_list_keys, point_list = chunk_radix_sort_pairs(
             point_list_keys_unsorted,
             point_list_unsorted,
             num_rendered,
@@ -691,25 +722,25 @@ def render_gaussians(
             num_rendered                      # number of elements to sort
         )
     
-    wp.launch(
-        kernel=wp_copy_int64,
-        dim=num_rendered,
-        inputs=[
-            point_list_keys_unsorted_padded,
-            point_list_keys,
-            num_rendered
-        ]
-    )
-    
-    wp.launch(
-        kernel=wp_copy_int,
-        dim=num_rendered, 
-        inputs=[
-            point_list_unsorted_padded,
-            point_list,
-            num_rendered
-        ]
-    )
+        wp.launch(
+            kernel=wp_copy_int64,
+            dim=num_rendered,
+            inputs=[
+                point_list_keys_unsorted_padded,
+                point_list_keys,
+                num_rendered
+            ]
+        )
+        
+        wp.launch(
+            kernel=wp_copy_int,
+            dim=num_rendered, 
+            inputs=[
+                point_list_unsorted_padded,
+                point_list,
+                num_rendered
+            ]
+        )
     
     tile_count = int(tile_grid[0] * tile_grid[1])
     ranges = wp.zeros(tile_count, dtype=wp.vec2i)  # each is (start, end)
