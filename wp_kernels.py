@@ -505,7 +505,7 @@ def chunk_radix_sort_pairs(keys: wp.array(dtype=wp.int64), values: wp.array(dtyp
         wp.utils.radix_sort_pairs(
             key_chunk,
             val_chunk,
-            max_chunk_size * 2
+            max_chunk_size
         )
         sorted_key_chunk = wp.zeros(max_chunk_size, dtype=wp.int64)
         sorted_val_chunk = wp.zeros(max_chunk_size, dtype=int)
@@ -516,12 +516,92 @@ def chunk_radix_sort_pairs(keys: wp.array(dtype=wp.int64), values: wp.array(dtyp
 
     return merge_sorted_chunks(sorted_key_chunks, sorted_val_chunks, count, max_chunk_size, num_chunks)
 
-def merge_sorted_chunks(sorted_key_chunks: list, sorted_val_chunks: list, count: int, max_chunk_size: int, num_chunks: int):
-    sorted_keys = wp.zeros(count, dtype=wp.int64)
-    sorted_values = wp.zeros(count, dtype=int)
-    
-    
-    return sorted_keys, sorted_values
+
+
+@wp.kernel
+def merge_two_chunks(
+    chunk1_keys: wp.array(dtype=wp.int64),
+    chunk1_vals: wp.array(dtype=int),
+    chunk2_keys: wp.array(dtype=wp.int64),
+    chunk2_vals: wp.array(dtype=int),
+    output_keys: wp.array(dtype=wp.int64),
+    output_vals: wp.array(dtype=int),
+    chunk_size1: int,
+    chunk_size2: int
+):
+    i = wp.tid()
+    total = chunk_size1 + chunk_size2
+
+    if i >= total:
+        return
+
+    # Binary search approach
+    lo = max(0, i - chunk_size2)
+    hi = min(i, chunk_size1)
+
+    while lo < hi:
+        mid = (lo + hi) // 2
+        a_key = chunk1_keys[mid]
+        b_key = chunk2_keys[i - mid - 1]
+
+        if a_key < b_key:
+            lo = mid + 1
+        else:
+            hi = mid
+
+    a_idx = lo
+    b_idx = i - lo
+
+    if a_idx < chunk_size1 and (b_idx >= chunk_size2 or chunk1_keys[a_idx] <= chunk2_keys[b_idx]):
+        output_keys[i] = chunk1_keys[a_idx]
+        output_vals[i] = chunk1_vals[a_idx]
+    else:
+        output_keys[i] = chunk2_keys[b_idx]
+        output_vals[i] = chunk2_vals[b_idx]
+        
+def merge_sorted_chunks(sorted_key_chunks, sorted_val_chunks, count, max_chunk_size, num_chunks):
+    import math
+
+    def launch_merge_kernel(k1, v1, k2, v2, out_k, out_v, size1, size2):
+        total = size1 + size2
+        wp.launch(
+            kernel=merge_two_chunks,
+            dim=total,
+            inputs=[k1, v1, k2, v2, out_k, out_v, size1, size2],
+        )
+
+    current_keys = sorted_key_chunks
+    current_vals = sorted_val_chunks
+    current_chunk_size = max_chunk_size
+
+    while len(current_keys) > 1:
+        next_keys = []
+        next_vals = []
+
+        i = 0
+        while i + 1 < len(current_keys):
+            k1 = current_keys[i]
+            v1 = current_vals[i]
+            k2 = current_keys[i + 1]
+            v2 = current_vals[i + 1]
+            out_k = wp.zeros(len(k1) + len(k2), dtype=wp.int64)
+            out_v = wp.zeros(len(v1) + len(v2), dtype=int)
+
+            launch_merge_kernel(k1, v1, k2, v2, out_k, out_v, len(k1), len(k2))
+
+            next_keys.append(out_k)
+            next_vals.append(out_v)
+            i += 2
+
+        if i < len(current_keys):
+            # Carry over the last chunk as is
+            next_keys.append(current_keys[i])
+            next_vals.append(current_vals[i])
+
+        current_keys = next_keys
+        current_vals = next_vals
+
+    return current_keys[0], current_vals[0]
 
 def render_gaussians(
     background,
@@ -697,8 +777,7 @@ def render_gaussians(
 
    
     print(f"Number of rendered gaussians: {num_rendered}")
-    if False:
-    # if num_rendered > (1 << 30):
+    if num_rendered > (1 << 30):
         # Use our new chunk-based sorting approach
         point_list_keys, point_list = chunk_radix_sort_pairs(
             point_list_keys_unsorted,
