@@ -511,8 +511,16 @@ def chunk_radix_sort_pairs(keys: wp.array(dtype=wp.int64), values: wp.array(dtyp
     for i in range(num_chunks):
         key_chunk = wp.zeros(max_chunk_size * 2, dtype=wp.int64)
         val_chunk = wp.zeros(max_chunk_size * 2, dtype=int)
-        wp.copy(key_chunk, keys[i * max_chunk_size:(i + 1) * max_chunk_size])
-        wp.copy(val_chunk, values[i * max_chunk_size:(i + 1) * max_chunk_size])
+        wp.launch(
+            kernel=wp_copy_to_chunks_int64,
+            dim=max_chunk_size,
+            inputs=[keys, key_chunk, i * max_chunk_size, 0, max_chunk_size]
+        )
+        wp.launch(
+            kernel=wp_copy_to_chunks_int,
+            dim=max_chunk_size,
+            inputs=[values, val_chunk, i * max_chunk_size, 0, max_chunk_size]
+        )
         
         wp.launch(
             kernel=wp_copy_to_chunks_int64,
@@ -533,8 +541,19 @@ def chunk_radix_sort_pairs(keys: wp.array(dtype=wp.int64), values: wp.array(dtyp
         )
         sorted_key_chunk = wp.zeros(max_chunk_size, dtype=wp.int64)
         sorted_val_chunk = wp.zeros(max_chunk_size, dtype=int)
-        wp.copy(sorted_key_chunk, key_chunk[:max_chunk_size])
-        wp.copy(sorted_val_chunk, val_chunk[:max_chunk_size])
+        
+        wp.launch(
+            kernel=wp_copy_to_chunks_int64,
+            dim=max_chunk_size,
+            inputs=[key_chunk, sorted_key_chunk, 0, 0, max_chunk_size]
+        )
+        
+        wp.launch(
+            kernel=wp_copy_to_chunks_int,
+            dim=max_chunk_size,
+            inputs=[val_chunk, sorted_val_chunk, 0, 0, max_chunk_size]
+        )
+        
         sorted_key_chunks.append(sorted_key_chunk)
         sorted_val_chunks.append(sorted_val_chunk)
 
@@ -584,8 +603,6 @@ def merge_two_chunks(
         output_vals[i] = chunk2_vals[b_idx]
         
 def merge_sorted_chunks(sorted_key_chunks, sorted_val_chunks, count, max_chunk_size, num_chunks):
-    import math
-
     def launch_merge_kernel(k1, v1, k2, v2, out_k, out_v, size1, size2):
         total = size1 + size2
         wp.launch(
