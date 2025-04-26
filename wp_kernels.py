@@ -480,170 +480,6 @@ def wp_prefix_sum(input_array: wp.array(dtype=int),
         for i in range(1, input_array.shape[0]):
             output_array[i] = output_array[i-1] + input_array[i]
 
-@wp.kernel
-def wp_copy_int64(src: wp.array(dtype=wp.int64), dst: wp.array(dtype=wp.int64), count: int):
-    i = wp.tid()
-    if i < count:
-        dst[i] = src[i]
-        
-@wp.kernel
-def wp_copy_int(src: wp.array(dtype=int), dst: wp.array(dtype=int), count: int):
-    i = wp.tid()
-    if i < count:
-        dst[i] = src[i]
-
-@wp.kernel
-def wp_copy_to_chunks_int64(src: wp.array(dtype=wp.int64), dst: wp.array(dtype=wp.int64), src_offset: int, dst_offset: int, count: int):
-    i = wp.tid()
-    if i < count:
-        dst[dst_offset + i] = src[src_offset + i]
-
-@wp.kernel
-def wp_copy_to_chunks_int(src: wp.array(dtype=int), dst: wp.array(dtype=int), src_offset: int, dst_offset: int, count: int):
-    i = wp.tid()
-    if i < count:
-        dst[dst_offset + i] = src[src_offset + i]
-
-def chunk_radix_sort_pairs(keys: wp.array(dtype=wp.int64), values: wp.array(dtype=int), count: int, max_chunk_size: int):
-    num_chunks = (count + max_chunk_size - 1) // max_chunk_size
-    sorted_key_chunks = []
-    sorted_val_chunks = []
-    for i in range(num_chunks):
-        key_chunk = wp.zeros(max_chunk_size * 2, dtype=wp.int64)
-        val_chunk = wp.zeros(max_chunk_size * 2, dtype=int)
-        wp.launch(
-            kernel=wp_copy_to_chunks_int64,
-            dim=max_chunk_size,
-            inputs=[keys, key_chunk, i * max_chunk_size, 0, max_chunk_size]
-        )
-        wp.launch(
-            kernel=wp_copy_to_chunks_int,
-            dim=max_chunk_size,
-            inputs=[values, val_chunk, i * max_chunk_size, 0, max_chunk_size]
-        )
-        
-        wp.launch(
-            kernel=wp_copy_to_chunks_int64,
-            dim=max_chunk_size, 
-            inputs=[keys, key_chunk, i * max_chunk_size, 0, max_chunk_size]
-        )
-        
-        wp.launch(
-            kernel=wp_copy_to_chunks_int,
-            dim=max_chunk_size,
-            inputs=[values, val_chunk, i * max_chunk_size, 0, max_chunk_size]
-        )
-        
-        wp.utils.radix_sort_pairs(
-            key_chunk,
-            val_chunk,
-            max_chunk_size
-        )
-        sorted_key_chunk = wp.zeros(max_chunk_size, dtype=wp.int64)
-        sorted_val_chunk = wp.zeros(max_chunk_size, dtype=int)
-        
-        wp.launch(
-            kernel=wp_copy_to_chunks_int64,
-            dim=max_chunk_size,
-            inputs=[key_chunk, sorted_key_chunk, 0, 0, max_chunk_size]
-        )
-        
-        wp.launch(
-            kernel=wp_copy_to_chunks_int,
-            dim=max_chunk_size,
-            inputs=[val_chunk, sorted_val_chunk, 0, 0, max_chunk_size]
-        )
-        
-        sorted_key_chunks.append(sorted_key_chunk)
-        sorted_val_chunks.append(sorted_val_chunk)
-
-    return merge_sorted_chunks(sorted_key_chunks, sorted_val_chunks, count, max_chunk_size, num_chunks)
-
-
-
-@wp.kernel
-def merge_two_chunks(
-    chunk1_keys: wp.array(dtype=wp.int64),
-    chunk1_vals: wp.array(dtype=int),
-    chunk2_keys: wp.array(dtype=wp.int64),
-    chunk2_vals: wp.array(dtype=int),
-    output_keys: wp.array(dtype=wp.int64),
-    output_vals: wp.array(dtype=int),
-    chunk_size1: int,
-    chunk_size2: int
-):
-    i = wp.tid()
-    total = chunk_size1 + chunk_size2
-
-    if i >= total:
-        return
-
-    # Binary search approach
-    lo = max(0, i - chunk_size2)
-    hi = min(i, chunk_size1)
-
-    while lo < hi:
-        mid = (lo + hi) // 2
-        a_key = chunk1_keys[mid]
-        b_key = chunk2_keys[i - mid - 1]
-
-        if a_key < b_key:
-            lo = mid + 1
-        else:
-            hi = mid
-
-    a_idx = lo
-    b_idx = i - lo
-
-    if a_idx < chunk_size1 and (b_idx >= chunk_size2 or chunk1_keys[a_idx] <= chunk2_keys[b_idx]):
-        output_keys[i] = chunk1_keys[a_idx]
-        output_vals[i] = chunk1_vals[a_idx]
-    else:
-        output_keys[i] = chunk2_keys[b_idx]
-        output_vals[i] = chunk2_vals[b_idx]
-        
-def merge_sorted_chunks(sorted_key_chunks, sorted_val_chunks, count, max_chunk_size, num_chunks):
-    def launch_merge_kernel(k1, v1, k2, v2, out_k, out_v, size1, size2):
-        total = size1 + size2
-        wp.launch(
-            kernel=merge_two_chunks,
-            dim=total,
-            inputs=[k1, v1, k2, v2, out_k, out_v, size1, size2],
-        )
-
-    current_keys = sorted_key_chunks
-    current_vals = sorted_val_chunks
-    current_chunk_size = max_chunk_size
-
-    while len(current_keys) > 1:
-        next_keys = []
-        next_vals = []
-
-        i = 0
-        while i + 1 < len(current_keys):
-            k1 = current_keys[i]
-            v1 = current_vals[i]
-            k2 = current_keys[i + 1]
-            v2 = current_vals[i + 1]
-            out_k = wp.zeros(len(k1) + len(k2), dtype=wp.int64)
-            out_v = wp.zeros(len(v1) + len(v2), dtype=int)
-
-            launch_merge_kernel(k1, v1, k2, v2, out_k, out_v, len(k1), len(k2))
-
-            next_keys.append(out_k)
-            next_vals.append(out_v)
-            i += 2
-
-        if i < len(current_keys):
-            # Carry over the last chunk as is
-            next_keys.append(current_keys[i])
-            next_vals.append(current_vals[i])
-
-        current_keys = next_keys
-        current_vals = next_vals
-
-    return current_keys[0], current_vals[0]
-
 def render_gaussians(
     background,
     means3D,
@@ -798,6 +634,10 @@ def render_gaussians(
 
     num_rendered = int(wp.to_torch(point_offsets)[-1].item())  # total number of duplicated entries
     
+    if num_rendered > (1 << 30):
+        # radix sort needs 2x memory
+        raise ValueError("Number of rendered points exceeds the maximum supported by Warp.")
+    
     point_list_keys_unsorted = wp.zeros(num_rendered, dtype=wp.int64)
     point_list_unsorted = wp.zeros(num_rendered, dtype=int)
     point_list_keys = wp.zeros(num_rendered, dtype=wp.int64)
@@ -816,51 +656,37 @@ def render_gaussians(
         ]
     )
 
-   
-    print(f"Number of rendered gaussians: {num_rendered}")
-    if num_rendered > (1 << 30):
-        # Use our new chunk-based sorting approach
-        point_list_keys, point_list = chunk_radix_sort_pairs(
-            point_list_keys_unsorted,
-            point_list_unsorted,
-            num_rendered,
-            max_chunk_size = (1 << 30) - 1
-        )
-    else:
-        # warp radix sort only supports 2^32 elements
-        # Use standard Warp radix sort for smaller arrays
-        # Allocate extra space (2x) for sorting
-        point_list_keys_unsorted_padded = wp.zeros(num_rendered * 2, dtype=wp.int64) 
-        point_list_unsorted_padded = wp.zeros(num_rendered * 2, dtype=int)
-        
-        # Copy data to padded arrays
-        wp.copy(point_list_keys_unsorted_padded, point_list_keys_unsorted)
-        wp.copy(point_list_unsorted_padded, point_list_unsorted)
-        wp.utils.radix_sort_pairs(
-            point_list_keys_unsorted_padded,  # keys to sort
-            point_list_unsorted_padded,       # values to sort along with keys
-            num_rendered                      # number of elements to sort
-        )
+    point_list_keys_unsorted_padded = wp.zeros(num_rendered * 2, dtype=wp.int64) 
+    point_list_unsorted_padded = wp.zeros(num_rendered * 2, dtype=int)
     
-        wp.launch(
-            kernel=wp_copy_int64,
-            dim=num_rendered,
-            inputs=[
-                point_list_keys_unsorted_padded,
-                point_list_keys,
-                num_rendered
-            ]
-        )
-        
-        wp.launch(
-            kernel=wp_copy_int,
-            dim=num_rendered, 
-            inputs=[
-                point_list_unsorted_padded,
-                point_list,
-                num_rendered
-            ]
-        )
+    # Copy data to padded arrays
+    wp.copy(point_list_keys_unsorted_padded, point_list_keys_unsorted)
+    wp.copy(point_list_unsorted_padded, point_list_unsorted)
+    wp.utils.radix_sort_pairs(
+        point_list_keys_unsorted_padded,  # keys to sort
+        point_list_unsorted_padded,       # values to sort along with keys
+        num_rendered                      # number of elements to sort
+    )
+
+    wp.launch(
+        kernel=wp_copy_int64,
+        dim=num_rendered,
+        inputs=[
+            point_list_keys_unsorted_padded,
+            point_list_keys,
+            num_rendered
+        ]
+    )
+    
+    wp.launch(
+        kernel=wp_copy_int,
+        dim=num_rendered, 
+        inputs=[
+            point_list_unsorted_padded,
+            point_list,
+            num_rendered
+        ]
+    )
     
     tile_count = int(tile_grid[0] * tile_grid[1])
     ranges = wp.zeros(tile_count, dtype=wp.vec2i)  # each is (start, end)
