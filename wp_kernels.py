@@ -480,6 +480,19 @@ def wp_prefix_sum(input_array: wp.array(dtype=int),
         for i in range(1, input_array.shape[0]):
             output_array[i] = output_array[i-1] + input_array[i]
 
+
+@wp.kernel
+def wp_copy_int64(src: wp.array(dtype=wp.int64), dst: wp.array(dtype=wp.int64), count: int):
+    i = wp.tid()
+    if i < count:
+        dst[i] = src[i]
+        
+@wp.kernel
+def wp_copy_int(src: wp.array(dtype=int), dst: wp.array(dtype=int), count: int):
+    i = wp.tid()
+    if i < count:
+        dst[i] = src[i]
+        
 def render_gaussians(
     background,
     means3D,

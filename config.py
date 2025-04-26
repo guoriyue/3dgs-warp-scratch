@@ -15,9 +15,9 @@ DEVICE = "cpu"
 TORCH_FLOAT = torch.float32
 
 
-TILE_M = wp.constant(32)
-TILE_N = wp.constant(32)
-TILE_THREADS = 128
+TILE_M = wp.constant(128)
+TILE_N = wp.constant(128)
+TILE_THREADS = 256
 
 
 VEC6 = wp.types.vector(length=6, dtype=WP_FLOAT32)
