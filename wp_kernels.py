@@ -542,8 +542,8 @@ def render_gaussians(
     Returns:
         Tuple of (rendered_image, depth_image) as Warp arrays
     """
-    rendered_image = wp.zeros((image_height, image_width), dtype=wp.vec3)
-    depth_image = wp.zeros((image_height, image_width), dtype=float)
+    rendered_image = wp.zeros((image_height, image_width), dtype=wp.vec3, device=DEVICE)
+    depth_image = wp.zeros((image_height, image_width), dtype=float, device=DEVICE)
 
     def to_warp_array(data, dtype, shape_check=None, flatten=False):
         if isinstance(data, wp.array):
@@ -558,7 +558,7 @@ def render_gaussians(
         if shape_check and data.shape[1:] != shape_check:
             if debug:
                 print(f"Warning: Expected shape {shape_check}, got {data.shape[1:]}")
-        return wp.array(data, dtype=dtype)
+        return wp.array(data, dtype=dtype, device=DEVICE)
 
     background_warp = wp.vec3(background[0], background[1], background[2])
     points_warp = to_warp_array(means3D, wp.vec3)
@@ -586,13 +586,13 @@ def render_gaussians(
     
     # Preallocate buffers for preprocessed data
     num_points = points_warp.shape[0]
-    radii = wp.zeros(num_points, dtype=int)
-    points_xy_image = wp.zeros(num_points, dtype=wp.vec2)
-    depths = wp.zeros(num_points, dtype=float)
-    cov3Ds = wp.zeros(num_points, dtype=VEC6)
-    rgb = wp.zeros(num_points, dtype=wp.vec3)
-    conic_opacity = wp.zeros(num_points, dtype=wp.vec4)
-    tiles_touched = wp.zeros(num_points, dtype=int)
+    radii = wp.zeros(num_points, dtype=int, device=DEVICE)
+    points_xy_image = wp.zeros(num_points, dtype=wp.vec2, device=DEVICE)
+    depths = wp.zeros(num_points, dtype=float, device=DEVICE)
+    cov3Ds = wp.zeros(num_points, dtype=VEC6, device=DEVICE)
+    rgb = wp.zeros(num_points, dtype=wp.vec3, device=DEVICE)
+    conic_opacity = wp.zeros(num_points, dtype=wp.vec4, device=DEVICE)
+    tiles_touched = wp.zeros(num_points, dtype=int, device=DEVICE)
     
     
     if debug:
@@ -635,7 +635,7 @@ def render_gaussians(
         ],
     )
     
-    point_offsets = wp.zeros(num_points, dtype=int)
+    point_offsets = wp.zeros(num_points, dtype=int, device=DEVICE)
     wp.launch(
         kernel=wp_prefix_sum,
         dim=1,
@@ -651,10 +651,10 @@ def render_gaussians(
         # radix sort needs 2x memory
         raise ValueError("Number of rendered points exceeds the maximum supported by Warp.")
     
-    point_list_keys_unsorted = wp.zeros(num_rendered, dtype=wp.int64)
-    point_list_unsorted = wp.zeros(num_rendered, dtype=int)
-    point_list_keys = wp.zeros(num_rendered, dtype=wp.int64)
-    point_list = wp.zeros(num_rendered, dtype=int)
+    point_list_keys_unsorted = wp.zeros(num_rendered, dtype=wp.int64, device=DEVICE)
+    point_list_unsorted = wp.zeros(num_rendered, dtype=int, device=DEVICE)
+    point_list_keys = wp.zeros(num_rendered, dtype=wp.int64, device=DEVICE)
+    point_list = wp.zeros(num_rendered, dtype=int, device=DEVICE)
     wp.launch(
         kernel=wp_duplicate_with_keys,
         dim=num_points,
@@ -669,8 +669,8 @@ def render_gaussians(
         ]
     )
 
-    point_list_keys_unsorted_padded = wp.zeros(num_rendered * 2, dtype=wp.int64) 
-    point_list_unsorted_padded = wp.zeros(num_rendered * 2, dtype=int)
+    point_list_keys_unsorted_padded = wp.zeros(num_rendered * 2, dtype=wp.int64, device=DEVICE) 
+    point_list_unsorted_padded = wp.zeros(num_rendered * 2, dtype=int, device=DEVICE)
     
     # Copy data to padded arrays
     wp.copy(point_list_keys_unsorted_padded, point_list_keys_unsorted)
@@ -702,7 +702,7 @@ def render_gaussians(
     )
     
     tile_count = int(tile_grid[0] * tile_grid[1])
-    ranges = wp.zeros(tile_count, dtype=wp.vec2i)  # each is (start, end)
+    ranges = wp.zeros(tile_count, dtype=wp.vec2i, device=DEVICE)  # each is (start, end)
 
     if num_rendered > 0:
         wp.launch(
