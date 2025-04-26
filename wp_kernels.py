@@ -5,6 +5,27 @@ from config import *
 # Initialize Warp
 wp.init()
 
+# Define spherical harmonics constants
+SH_C0 = 0.28209479177387814
+SH_C1 = 0.4886025119029199
+SH_C2 = [
+    1.0925484305920792,    # C2[0]
+    -1.0925484305920792,   # C2[1]
+    0.31539156525252005,   # C2[2]
+    -1.0925484305920792,   # C2[3]
+    0.5462742152960396     # C2[4]
+]
+
+SH_C3 = [
+    -0.5900435899266435,   # C3[0]
+    2.890611442640554,     # C3[1]
+    -0.4570457994644658,   # C3[2]
+    0.3731763325901154,    # C3[3]
+    -0.4570457994644658,   # C3[4]
+    1.445305721320277,     # C3[5]
+    -0.5900435899266435    # C3[6]
+]
+
 @wp.func
 def ndc2pix(x: float, size: float) -> float:
     return (x + 1.0) * 0.5 * size
@@ -48,13 +69,10 @@ def compute_color_from_sh(
     Returns:
         RGB color as vec3
     """
-    SH_C0 = 0.28209479177387814
-    SH_C1 = 0.4886025119029199
-    
     # Calculate view direction
     pos = points[idx]
-    dir = pos - campos
-    dir = wp.normalize(dir)
+    dir_orig = pos - campos
+    dir = wp.normalize(dir_orig)
     x, y, z = dir[0], dir[1], dir[2]
     
     # Base offset for this Gaussian's SH coefficients
@@ -76,23 +94,21 @@ def compute_color_from_sh(
             xy = x*y
             yz = y*z
             xz = x*z
-            
-            # Using exact same constants as in render_python/sh.py
-            result = result + 1.0925484305920792 * xy * shs[base_idx + 4] \
-                   + (-1.0925484305920792) * yz * shs[base_idx + 5] \
-                   + 0.31539156525252005 * (2.0 * zz - xx - yy) * shs[base_idx + 6] \
-                   + (-1.0925484305920792) * xz * shs[base_idx + 7] \
-                   + 0.5462742152960396 * (xx - yy) * shs[base_idx + 8]
+            # Using constants from SH_C2 array
+            result = result + SH_C2[0] * xy * shs[base_idx + 4] + SH_C2[1] * yz * shs[base_idx + 5]
+            result = result + SH_C2[2] * (2.0 * zz - xx - yy) * shs[base_idx + 6]
+            result = result + SH_C2[3] * xz * shs[base_idx + 7]
+            result = result + SH_C2[4] * (xx - yy) * shs[base_idx + 8]
                    
             if degree > 2:
-                result = result \
-                       + (-0.5900435899266435) * y * (3.0 * xx - yy) * shs[base_idx + 9] \
-                       + 2.890611442640554 * xy * z * shs[base_idx + 10] \
-                       + (-0.4570457994644658) * y * (4.0 * zz - xx - yy) * shs[base_idx + 11] \
-                       + 0.3731763325901154 * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * shs[base_idx + 12] \
-                       + (-0.4570457994644658) * x * (4.0 * zz - xx - yy) * shs[base_idx + 13] \
-                       + 1.445305721320277 * z * (xx - yy) * shs[base_idx + 14] \
-                       + (-0.5900435899266435) * x * (xx - 3.0 * yy) * shs[base_idx + 15]
+                # Degree 3 terms using constants from SH_C3 array
+                result = result + SH_C3[0] * y * (3.0 * xx - yy) * shs[base_idx + 9]
+                result = result + SH_C3[1] * xy * z * shs[base_idx + 10]
+                result = result + SH_C3[2] * y * (4.0 * zz - xx - yy) * shs[base_idx + 11]
+                result = result + SH_C3[3] * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * shs[base_idx + 12]
+                result = result + SH_C3[4] * x * (4.0 * zz - xx - yy) * shs[base_idx + 13]
+                result = result + SH_C3[5] * z * (xx - yy) * shs[base_idx + 14]
+                result = result + SH_C3[6] * x * (xx - 3.0 * yy) * shs[base_idx + 15]
     
     result = result + wp.vec3(0.5, 0.5, 0.5)
     
@@ -211,14 +227,16 @@ def wp_preprocess(
     p_orig = orig_points[i]
     
     p_view = in_frustum(p_orig, view_matrix)
-
+    
     if p_view[2] <= 0.2:
         return
     
-    p_hom = wp.vec4(p_orig[0], p_orig[1], p_orig[2], 1.0)
+    p_hom = wp.vec4(p_view[0], p_view[1], p_view[2], 1.0)
     p_hom = proj_matrix * p_hom
     p_w = 1.0 / (p_hom[3] + 0.0000001)
     p_proj = wp.vec3(p_hom[0] * p_w, p_hom[1] * p_w, p_hom[2] * p_w)
+    
+    
     
     cov3d = compute_cov3d(scales[i], scale_modifier, rotations[i])
     
@@ -236,11 +254,6 @@ def wp_preprocess(
     det_cov = cov2d[0] * cov2d[2] - cov2d[1] * cov2d[1]
     cov_with_blur = wp.vec3(cov2d[0] + h_var, cov2d[1], cov2d[2] + h_var)
     det_cov_plus_h_cov = cov_with_blur[0] * cov_with_blur[2] - cov_with_blur[1] * cov_with_blur[1]
-    
-    # Antialiasing scaling factor
-    h_convolution_scaling = 1.0
-    if antialiasing:
-        h_convolution_scaling = wp.sqrt(wp.max(0.000025, det_cov / det_cov_plus_h_cov))
     
     # Invert covariance (EWA algorithm)
     det = det_cov_plus_h_cov
@@ -279,8 +292,7 @@ def wp_preprocess(
     points_xy_image[i] = point_image
     
     # Pack conic and opacity into single vec4
-    opacity = opacities[i]
-    conic_opacity[i] = wp.vec4(conic[0], conic[1], conic[2], opacity * h_convolution_scaling)
+    conic_opacity[i] = wp.vec4(conic[0], conic[1], conic[2], opacities[i])
     # Store tile information
     tiles_touched[i] = (rect_max_y - rect_min_y) * (rect_max_x - rect_min_x)
 
@@ -634,7 +646,14 @@ def render_gaussians(
             antialiasing               # antialiasing
         ],
     )
-    
+    torch_depths = wp.to_torch(depths).cpu().numpy()
+    print("depths", np.max(torch_depths), np.min(torch_depths))
+    torch_rgb = wp.to_torch(rgb).cpu().numpy()
+    print("rgb", np.max(torch_rgb), np.min(torch_rgb))
+    torch_conic_opacity = wp.to_torch(conic_opacity).cpu().numpy()
+    print("conic_opacity", np.max(torch_conic_opacity), np.min(torch_conic_opacity))
+    print("view_matrix_warp", view_matrix_warp)
+    print("proj_matrix_warp", proj_matrix_warp)
     point_offsets = wp.zeros(num_points, dtype=int, device=DEVICE)
     wp.launch(
         kernel=wp_prefix_sum,

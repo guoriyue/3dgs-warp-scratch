@@ -12,13 +12,6 @@ from config import *
 # Initialize Warp
 wp.init()
 
-def load_gaussians_from_path(input_path):
-    """Load Gaussian data from the specified path"""
-    if input_path.endswith('.ply'):
-        return load_ply(input_path)
-    else:
-        raise ValueError(f"Unsupported input path format: {input_path}")
-
 def setup_example_camera(image_width=700, image_height=700, fovx=45.0, fovy=45.0, znear=0.01, zfar=100.0):
     """Setup default camera parameters"""
     # Camera position and orientation
@@ -28,7 +21,6 @@ def setup_example_camera(image_width=700, image_height=700, fovx=45.0, fovy=45.0
     # Compute matrices
     view_matrix = world_to_view(R=R, t=camera_pos)
     proj_matrix = projection_matrix(fovx=fovx, fovy=fovy, znear=znear, zfar=zfar)
-    proj_matrix = np.dot(proj_matrix, view_matrix)
     
     # Compute FOV parameters
     tan_fovx = math.tan(fovx * 0.5)
@@ -89,6 +81,16 @@ def example_gaussians(image_width=700, image_height=700, fovx=45.0, fovy=45.0, z
     
     return pts, shs, scales, rotations, opacities, camera_params
 
+
+
+def load_gaussians_from_path(input_path):
+    """Load Gaussian data from the specified path"""
+    if input_path.endswith('.ply'):
+        return load_ply(input_path)
+    else:
+        raise ValueError(f"Unsupported input path format: {input_path}")
+
+
 def load_camera_from_json(input_path, camera_id=0):
     """Load camera parameters from camera.json file"""
     camera_file = os.path.join(os.path.dirname(input_path), "cameras.json")
@@ -125,7 +127,7 @@ def load_camera_from_json(input_path, camera_id=0):
         znear = 0.01
         zfar = 100.0
         proj_matrix = projection_matrix(fovx=fovx, fovy=fovy, znear=znear, zfar=zfar)
-        proj_matrix = np.dot(proj_matrix, view_matrix)
+        # proj_matrix = np.dot(proj_matrix, view_matrix)
         
         # Calculate other parameters
         tan_fovx = np.tan(fovx * 0.5)
@@ -160,6 +162,7 @@ if __name__ == "__main__":
                         help="Output image filename")
     parser.add_argument("--width", type=int, default=700, help="Image width")
     parser.add_argument("--height", type=int, default=700, help="Image height")
+    parser.add_argument("--debug", action="store_true", help="Enable additional debug output")
     args = parser.parse_args()
     
     # Set image parameters
@@ -176,16 +179,34 @@ if __name__ == "__main__":
         # Load Gaussians from provided path
         try:
             # pts, scales, rotations, opacities, colors, shs = load_gaussians_from_path(f"{args.input_path}/input.ply")
-            pts, scales, rotations, opacities, colors, shs = load_gaussians_from_path(f"/Users/guomingfei/Desktop/warp-nerf-scratch/playroom/point_cloud/iteration_30000/point_cloud.ply")
+            ply_path = "/Users/guomingfei/Desktop/warp-nerf-scratch/playroom/point_cloud/iteration_30000/point_cloud.ply"
+            print(f"Loading point cloud from: {ply_path}")
+            pts, scales, rotations, opacities, colors, shs = load_gaussians_from_path(ply_path)
             
             n = len(pts)
-            print(f"Loaded {n} Gaussians from {args.input_path}")
+            print(f"Loaded {n} points from PLY file")
+            print(f"Point cloud statistics:")
+            print(f"  - Position range: Min {pts.min(axis=0)}, Max {pts.max(axis=0)}")
+            print(f"  - Scale range: Min {scales.min(axis=0)}, Max {scales.max(axis=0)}")
+            print(f"  - Opacity range: Min {opacities.min()}, Max {opacities.max()}")
+            
+            if args.debug and n > 0:
+                # Print out a sample point for debugging
+                idx = 0
+                print(f"Sample point {idx}:")
+                print(f"  - Position: {pts[idx]}")
+                print(f"  - Scale: {scales[idx]}")
+                print(f"  - Rotation: {rotations[idx]}")
+                print(f"  - Opacity: {opacities[idx]}")
+                if shs is not None:
+                    print(f"  - SH (first coefficient): {shs[idx][0]}")
             
             # Try to load camera from cameras.json
             camera_params = load_camera_from_json(f"{args.input_path}/cameras.json", camera_id=1)
    
             # If no camera found, use default camera
             if camera_params is None:
+                print("Using default camera parameters")
                 camera_params = setup_example_camera(
                     image_width=image_width, 
                     image_height=image_height,
@@ -200,9 +221,17 @@ if __name__ == "__main__":
                     image_width = camera_params['width']
                     image_height = camera_params['height']
                     print(f"Using image dimensions from camera: {image_width}x{image_height}")
+                    
+                # Print camera info for debugging
+                print(f"Camera parameters:")
+                print(f"  - Position: {camera_params['camera_pos']}")
+                print(f"  - View matrix: \n{camera_params['view_matrix']}")
+                print(f"  - Projection matrix: \n{camera_params['proj_matrix']}")
             
         except Exception as e:
             print(f"Error loading from path: {e}")
+            import traceback
+            traceback.print_exc()
             exit(1)
     else:
         # Use example Gaussians
@@ -224,6 +253,20 @@ if __name__ == "__main__":
     else:
         colors = np.random.random((n, 3)).astype(np.float32)
 
+    # Debugging: Force a fixed camera for consistency
+    if args.debug and args.input_path:
+        print("Using a fixed example camera for debugging")
+        camera_params = setup_example_camera(
+            image_width=image_width, 
+            image_height=image_height,
+            fovx=fovx,
+            fovy=fovy,
+            znear=znear,
+            zfar=zfar
+        )
+
+    print(f"Starting rendering with {n} points to {image_width}x{image_height} image")
+    
     # Call the Gaussian rasterizer
     rendered_image, depth_image = render_gaussians(
         background=background,
@@ -248,8 +291,16 @@ if __name__ == "__main__":
         debug=True
     )
 
+    print("Rendering completed")
+    
     # Convert the rendered image from device to host
     rendered_array = wp.to_torch(rendered_image).cpu().numpy()
+    
+    # Check if the image has any non-background pixels
+    bg_color = background
+    non_bg_pixels = np.sum(np.any(np.abs(rendered_array - bg_color) > 0.01, axis=2))
+    total_pixels = image_width * image_height
+    print(f"Image statistics: {non_bg_pixels} / {total_pixels} non-background pixels ({non_bg_pixels/total_pixels*100:.2f}%)")
     
     # Display and save using matplotlib
     plt.figure(figsize=(10, 10))
