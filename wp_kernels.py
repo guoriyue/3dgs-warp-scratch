@@ -8,23 +8,6 @@ wp.init()
 # Define spherical harmonics constants
 SH_C0 = 0.28209479177387814
 SH_C1 = 0.4886025119029199
-SH_C2 = [
-    1.0925484305920792,    # C2[0]
-    -1.0925484305920792,   # C2[1]
-    0.31539156525252005,   # C2[2]
-    -1.0925484305920792,   # C2[3]
-    0.5462742152960396     # C2[4]
-]
-
-SH_C3 = [
-    -0.5900435899266435,   # C3[0]
-    2.890611442640554,     # C3[1]
-    -0.4570457994644658,   # C3[2]
-    0.3731763325901154,    # C3[3]
-    -0.4570457994644658,   # C3[4]
-    1.445305721320277,     # C3[5]
-    -0.5900435899266435    # C3[6]
-]
 
 @wp.func
 def ndc2pix(x: float, size: float) -> float:
@@ -69,6 +52,10 @@ def compute_color_from_sh(
     Returns:
         RGB color as vec3
     """
+    # SH constants
+    SH_C0 = 0.28209479177387814
+    SH_C1 = 0.4886025119029199
+    
     # Calculate view direction
     pos = points[idx]
     dir_orig = pos - campos
@@ -94,21 +81,23 @@ def compute_color_from_sh(
             xy = x*y
             yz = y*z
             xz = x*z
-            # Using constants from SH_C2 array
-            result = result + SH_C2[0] * xy * shs[base_idx + 4] + SH_C2[1] * yz * shs[base_idx + 5]
-            result = result + SH_C2[2] * (2.0 * zz - xx - yy) * shs[base_idx + 6]
-            result = result + SH_C2[3] * xz * shs[base_idx + 7]
-            result = result + SH_C2[4] * (xx - yy) * shs[base_idx + 8]
+            
+            # Degree 2 terms with hardcoded constants
+            result = result + 1.0925484305920792 * xy * shs[base_idx + 4] 
+            result = result + (-1.0925484305920792) * yz * shs[base_idx + 5]
+            result = result + 0.31539156525252005 * (2.0 * zz - xx - yy) * shs[base_idx + 6]
+            result = result + (-1.0925484305920792) * xz * shs[base_idx + 7]
+            result = result + 0.5462742152960396 * (xx - yy) * shs[base_idx + 8]
                    
             if degree > 2:
-                # Degree 3 terms using constants from SH_C3 array
-                result = result + SH_C3[0] * y * (3.0 * xx - yy) * shs[base_idx + 9]
-                result = result + SH_C3[1] * xy * z * shs[base_idx + 10]
-                result = result + SH_C3[2] * y * (4.0 * zz - xx - yy) * shs[base_idx + 11]
-                result = result + SH_C3[3] * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * shs[base_idx + 12]
-                result = result + SH_C3[4] * x * (4.0 * zz - xx - yy) * shs[base_idx + 13]
-                result = result + SH_C3[5] * z * (xx - yy) * shs[base_idx + 14]
-                result = result + SH_C3[6] * x * (xx - 3.0 * yy) * shs[base_idx + 15]
+                # Degree 3 terms with hardcoded constants
+                result = result + (-0.5900435899266435) * y * (3.0 * xx - yy) * shs[base_idx + 9]
+                result = result + 2.890611442640554 * xy * z * shs[base_idx + 10]
+                result = result + (-0.4570457994644658) * y * (4.0 * zz - xx - yy) * shs[base_idx + 11]
+                result = result + 0.3731763325901154 * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * shs[base_idx + 12]
+                result = result + (-0.4570457994644658) * x * (4.0 * zz - xx - yy) * shs[base_idx + 13]
+                result = result + 1.445305721320277 * z * (xx - yy) * shs[base_idx + 14]
+                result = result + (-0.5900435899266435) * x * (xx - 3.0 * yy) * shs[base_idx + 15]
     
     result = result + wp.vec3(0.5, 0.5, 0.5)
     
