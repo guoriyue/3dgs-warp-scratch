@@ -5,7 +5,7 @@ import math
 import argparse
 import os
 import json
-from wp_kernels import render_gaussians
+from forward import render_gaussians
 from utils import world_to_view, projection_matrix, load_ply
 from config import *
 
