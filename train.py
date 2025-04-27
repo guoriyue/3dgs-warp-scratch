@@ -8,9 +8,12 @@ import argparse
 from pathlib import Path
 from plyfile import PlyData, PlyElement
 import imageio.v2 as imageio
+import torch
+import torch.nn.functional as F
+import math
 
 # Import the renderer kernel here
-from wp_kernels import render_gaussians
+from forward import render_gaussians
 from utils import world_to_view, projection_matrix, load_ply
 from config import *
 
@@ -864,4 +867,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()
