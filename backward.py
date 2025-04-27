@@ -37,22 +37,6 @@ def gradient_normalize_quat_wp(v: wp.vec4, grad_out: wp.vec4, epsilon: float=1e-
     grad_in = (grad_out - u * u_dot_grad) * inv_len
     return grad_in
 
-@wp.func
-def quat_to_mat33_wp(q: wp.vec4) -> wp.mat33:
-    """ Converts quaternion (x, y, z, w) to 3x3 rotation matrix (column-major). """
-    # Assumes input q is normalized or normalization is handled elsewhere
-    x = q[0]; y = q[1]; z = q[2]; r = q[3] # w=r
-    x2 = x*x; y2 = y*y; z2 = z*z
-    xy = x*y; xz = x*z; yz = y*z
-    rx = r*x; ry = r*y; rz = r*z
-
-    # Row-major elements
-    r00 = 1.0 - 2.0*(y2 + z2); r01 = 2.0*(xy - rz); r02 = 2.0*(xz + ry)
-    r10 = 2.0*(xy + rz); r11 = 1.0 - 2.0*(x2 + z2); r12 = 2.0*(yz - rx)
-    r20 = 2.0*(xz - ry); r21 = 2.0*(yz + rx); r22 = 1.0 - 2.0*(x2 + y2)
-
-    # Construct column-major
-    return wp.mat33(r00, r10, r20, r01, r11, r21, r02, r12, r22)
 
 
 # --- Backward Kernels ---
@@ -403,7 +387,7 @@ def compute_cov3d_backward_kernel(
     # 1. Rotation matrix R from normalized quaternion
     # Must normalize here for derivative calculation w.r.t. normalized quat
     rot_quat_norm = wp.normalize(rot_quat)
-    R = quat_to_mat33_wp(rot_quat_norm) # Use the helper
+    R = wp.quat_to_matrix(rot_quat_norm)
 
     # 2. Scaling matrix S
     s_vec = scale_modifier * scale_vec
