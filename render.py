@@ -160,8 +160,8 @@ if __name__ == "__main__":
                         help="Path to input data (PLY file or directory)")
     parser.add_argument("--output", type=str, default="gaussian_render.png",
                         help="Output image filename")
-    parser.add_argument("--width", type=int, default=700, help="Image width")
-    parser.add_argument("--height", type=int, default=700, help="Image height")
+    parser.add_argument("--width", type=int, default=1800, help="Image width")
+    parser.add_argument("--height", type=int, default=1800, help="Image height")
     parser.add_argument("--debug", action="store_true", help="Enable additional debug output")
     args = parser.parse_args()
     
@@ -202,7 +202,7 @@ if __name__ == "__main__":
                     print(f"  - SH (first coefficient): {shs[idx][0]}")
             
             # Try to load camera from cameras.json
-            camera_params = load_camera_from_json(f"{args.input_path}/cameras.json", camera_id=1)
+            camera_params = load_camera_from_json(f"{args.input_path}/cameras.json", camera_id=0)
    
             # If no camera found, use default camera
             if camera_params is None:
@@ -245,13 +245,6 @@ if __name__ == "__main__":
         )
         n = len(pts)
         print(f"Using {n} example Gaussians")
-    
-    # Generate random colors if not loaded from input
-    if args.input_path and 'colors' in locals():
-        # Use loaded colors if available
-        pass
-    else:
-        colors = np.random.random((n, 3)).astype(np.float32)
 
     # Debugging: Force a fixed camera for consistency
     if args.debug and args.input_path:
@@ -271,7 +264,7 @@ if __name__ == "__main__":
     rendered_image, depth_image = render_gaussians(
         background=background,
         means3D=pts,
-        colors=colors,
+        colors=colors if colors is not None else None,
         opacity=opacities,
         scales=scales,
         rotations=rotations,
