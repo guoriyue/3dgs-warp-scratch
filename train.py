@@ -592,6 +592,9 @@ class NeRFGaussianSplattingTrainer:
             img = imageio.imread(path)
             # Convert to float and normalize to [0, 1]
             img_np = img.astype(np.float32) / 255.0
+            # Ensure image is RGB (discard alpha channel if present)
+            if img_np.shape[2] == 4:
+                img_np = img_np[:, :, :3] # Keep only R, G, B channels
             return img_np
         else:
             raise FileNotFoundError(f"Image not found: {path}")
