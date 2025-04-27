@@ -636,13 +636,8 @@ def render_gaussians(
         ],
     )
     torch_depths = wp.to_torch(depths).cpu().numpy()
-    print("depths", np.max(torch_depths), np.min(torch_depths))
     torch_rgb = wp.to_torch(rgb).cpu().numpy()
-    print("rgb", np.max(torch_rgb), np.min(torch_rgb))
     torch_conic_opacity = wp.to_torch(conic_opacity).cpu().numpy()
-    print("conic_opacity", np.max(torch_conic_opacity), np.min(torch_conic_opacity))
-    print("view_matrix_warp", view_matrix_warp)
-    print("proj_matrix_warp", proj_matrix_warp)
     point_offsets = wp.zeros(num_points, dtype=int, device=DEVICE)
     wp.launch(
         kernel=wp_prefix_sum,
