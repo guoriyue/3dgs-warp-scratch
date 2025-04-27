@@ -136,7 +136,8 @@ def compute_cov2d(p_orig: wp.vec3, cov3d: VEC6, view_matrix: wp.mat44,
         view_matrix[1, 0], view_matrix[1, 1], view_matrix[1, 2],
         view_matrix[2, 0], view_matrix[2, 1], view_matrix[2, 2]
     )
-    T = J * W
+    # Change order of multiplication to match CUDA reference implementation
+    T = W * J
     
     Vrk = wp.mat33(
         cov3d[0], cov3d[1], cov3d[2],
