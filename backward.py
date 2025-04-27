@@ -952,59 +952,40 @@ def backward_render(
 
 def backward(
     # --- Core parameters ---
-    num_points: int,     # Number of 3D Gaussians
-    degree: int,         # SH degree (0-3)
-    width: int, height: int,  # Image dimensions
-    background: wp.vec3,      # Background color
-    
+    background,
+    means3D,
+    dL_dpixels,
     # --- Model parameters ---
-    means3D: wp.array(dtype=wp.vec3),        # 3D positions (P, 3)
-    shs: wp.array(dtype=wp.vec3),            # SH coefficients (P*max_sh_coeffs, 3)
-    colors_precomp: wp.array(dtype=wp.vec3) = None,  # Optional precomputed colors (P, 3)
-    scales: wp.array(dtype=wp.vec3) = None,  # Scale parameters (P, 3)
-    scale_modifier: float = 1.0,             # Global scale modifier
-    rotations: wp.array(dtype=wp.vec4) = None,  # Rotation quaternions (P, 4)
-    cov3D_precomp: wp.array(dtype=VEC6) = None,  # Optional precomputed 3D covariance (P, 6)
-    
+    colors=None,
+    opacity=None,
+    shs=None,
+    scales=None,
+    rotations=None,
+    scale_modifier=1.0,
     # --- Camera parameters ---
-    viewmatrix: wp.mat44 = None,             # World-to-view matrix (4, 4)
-    projmatrix: wp.mat44 = None,             # Projection matrix (4, 4)
-    campos: wp.vec3 = None,                  # Camera position (3,)
-    tan_fovx: float = 0.0,                   # Tangent of x field of view
-    tan_fovy: float = 0.0,                   # Tangent of y field of view
-    
-    # --- Forward pass data ---
-    radii: wp.array(dtype=int) = None,       # Computed radii from forward pass (P,)
-    means2D: wp.array(dtype=wp.vec2) = None, # 2D projected positions (P, 2)
-    conic_opacity: wp.array(dtype=wp.vec4) = None,  # Conic matrices + opacity (P, 4)
-    rgb: wp.array(dtype=wp.vec3) = None,     # RGB colors from forward (P, 3)
-    clamped: wp.array(dtype=wp.uint32) = None,  # Clamping state from forward (P,)
-    depth: wp.array(dtype=float) = None,     # Depth values from forward (P,)
-    
-    # --- Internal binning/rasterization data ---
-    geom_buffer: dict = None,                # Dictionary holding geometric state
-    binning_buffer: dict = None,             # Dictionary holding binning state
-    img_buffer: dict = None,                 # Dictionary holding image state
-    
-    # --- Input gradient ---
-    dL_dpixels: wp.array2d(dtype=wp.vec3) = None,  # Gradient of loss w.r.t pixels (H, W, 3)
-    
-    # --- Output gradients ---
-    dL_dmean2D: wp.array(dtype=wp.vec2) = None,    # Output: dL/dmean2D (P, 2)
-    dL_dconic: wp.array(dtype=wp.vec3) = None,     # Output: dL/dconic (P, 3) 
-    dL_dopacity: wp.array(dtype=float) = None,     # Output: dL/dopacity (P,)
-    dL_dcolor: wp.array(dtype=wp.vec3) = None,     # Output: dL/dcolor (P, 3)
-    dL_dmean3D: wp.array(dtype=wp.vec3) = None,    # Output: dL/dmean3D (P, 3)
-    dL_dcov3D: wp.array(dtype=VEC6) = None,        # Output: dL/dcov3D (P, 6)
-    dL_dsh: wp.array(dtype=wp.vec3) = None,        # Output: dL/dsh (P*max_sh_coeffs, 3)
-    dL_dscale: wp.array(dtype=wp.vec3) = None,     # Output: dL/dscale (P, 3)
-    dL_drot: wp.array(dtype=wp.vec4) = None,       # Output: dL/drot (P, 4)
-    
-    # --- Additional parameters ---
-    tile_bounds: tuple = None,               # Precomputed tile bounds (optional)
-    block_size: int = 128,                   # CUDA block size
-    debug: bool = False                      # Enable debug output
-) -> None:
+    viewmatrix=None,
+    projmatrix=None,
+    tan_fovx=0.5, 
+    tan_fovy=0.5,
+    image_height=256,
+    image_width=256,
+    campos=None,
+    # --- Forward output buffers ---
+    radii=None,
+    means2D=None,  
+    conic_opacity=None,
+    rgb=None,
+    clamped=None,
+    depth=None,
+    # --- Internal state buffers ---
+    geom_buffer=None,
+    binning_buffer=None,
+    img_buffer=None,
+    # --- Algorithm parameters ---
+    degree=3,
+    block_size=128,
+    debug=False,
+):
     """
     Main backward function for 3D Gaussian Splatting.
     
@@ -1014,43 +995,102 @@ def backward(
        (mean3D, cov3D, SH coefficients, scales, rotations)
     
     Args:
-        num_points: Number of 3D Gaussians
+        background: Background color as numpy array, torch tensor, or wp.vec3 (3,)
+        means3D: 3D positions as numpy array, torch tensor, or wp.array (N, 3)
+        dL_dpixels: Gradient of loss w.r.t. output pixels (H, W, 3)
+        colors: Optional precomputed RGB colors (N, 3)
+        opacity: Opacity values (N, 1) or (N,)
+        shs: Spherical harmonics coefficients (N, D, 3) or flattened (N*D, 3)
+        scales: Scale parameters (N, 3)
+        rotations: Rotation matrices (N, 3, 3) or quaternions (N, 4)
+        scale_modifier: Global scale modifier (float)
+        viewmatrix: View matrix (4, 4)
+        projmatrix: Projection matrix (4, 4)
+        tan_fovx: Tangent of x field of view
+        tan_fovy: Tangent of y field of view
+        image_height: Image height
+        image_width: Image width
+        campos: Camera position (3,)
+        radii: Computed radii from forward pass (N,)
+        means2D: 2D projected positions from forward pass (N, 2)
+        conic_opacity: Conic matrices + opacity from forward pass (N, 4)
+        rgb: RGB colors from forward pass (N, 3)
+        clamped: Clamping state from forward pass (N, 3)
+        depth: Depth values from forward pass (N,)
+        geom_buffer: Dictionary holding geometric state
+        binning_buffer: Dictionary holding binning state
+        img_buffer: Dictionary holding image state
         degree: SH degree (0-3)
-        width, height: Image dimensions
-        background: Background color
-        means3D: 3D positions
-        shs: SH coefficients
-        colors_precomp: Optional precomputed colors
-        scales: Scale parameters
-        scale_modifier: Global scale modifier
-        rotations: Rotation quaternions
-        cov3D_precomp: Optional precomputed 3D covariance
-        viewmatrix: World-to-view matrix
-        projmatrix: Camera projection matrix
-        campos: Camera position
-        tan_fovx, tan_fovy: Tangent of field of view
-        radii: Computed radii from forward pass
-        means2D: 2D projected positions from forward pass
-        conic_opacity: Conic matrices + opacity from forward pass
-        rgb: RGB colors from forward pass
-        clamped: Clamping state from forward pass
-        depth: Depth values from forward pass
-        geom_buffer, binning_buffer, img_buffer: Dictionaries holding state
-        dL_dpixels: Gradient of loss w.r.t pixels
-        dL_dmean2D, dL_dconic, dL_dopacity, dL_dcolor: Output gradients w.r.t 2D parameters
-        dL_dmean3D, dL_dcov3D, dL_dsh, dL_dscale, dL_drot: Output gradients w.r.t 3D parameters
-        tile_bounds: Precomputed tile bounds (optional)
         block_size: CUDA block size
         debug: Enable debug output
         
     Returns:
-        None. Gradients are written to the output arrays.
+        dict: Dictionary containing gradients for all model parameters:
+            - dL_dmean3D: Gradient w.r.t. 3D positions (N, 3)
+            - dL_dcolor: Gradient w.r.t. colors (N, 3)
+            - dL_dshs: Gradient w.r.t. SH coefficients (N*D, 3)
+            - dL_dopacity: Gradient w.r.t. opacity (N,)
+            - dL_dscale: Gradient w.r.t. scales (N, 3)
+            - dL_drot: Gradient w.r.t. rotations (N, 4)
     """
     # Calculate focal lengths from FoV
-    focal_y = height / (2.0 * tan_fovy)
-    focal_x = width / (2.0 * tan_fovx)
+    focal_y = image_height / (2.0 * tan_fovy)
+    focal_x = image_width / (2.0 * tan_fovx)
     
-    # Extract data from buffer dictionaries if provided
+    def to_warp_array(data, dtype, shape_check=None, flatten=False):
+        """Helper function to convert various input types to warp arrays."""
+        if isinstance(data, wp.array):
+            return data
+        if data is None:
+            return None
+        # Convert torch tensor to numpy if needed
+        if hasattr(data, 'cpu') and hasattr(data, 'numpy'):
+            data = data.cpu().numpy()
+        if flatten and data.ndim == 2 and data.shape[1] == 1:
+            data = data.flatten()
+        if shape_check and data.shape[1:] != shape_check:
+            if debug:
+                print(f"Warning: Expected shape {shape_check}, got {data.shape[1:]}")
+        return wp.array(data, dtype=dtype, device="cuda")
+    
+    # Convert inputs to warp arrays
+    background_warp = background if isinstance(background, wp.vec3) else wp.vec3(background[0], background[1], background[2])
+    means3D_warp = to_warp_array(means3D, wp.vec3)
+    dL_dpixels_warp = to_warp_array(dL_dpixels, wp.vec3) if not isinstance(dL_dpixels, wp.array2d) else dL_dpixels
+    
+    # Get number of points
+    num_points = means3D_warp.shape[0]
+    
+    # Convert optional parameters if provided
+    colors_warp = to_warp_array(colors, wp.vec3) if colors is not None else None
+    opacity_warp = to_warp_array(opacity, float, flatten=True) if opacity is not None else None
+    
+    # SH coefficients need special handling for flattening
+    if shs is not None:
+        sh_data = shs.reshape(-1, 3) if hasattr(shs, 'reshape') and shs.ndim > 2 else shs
+        shs_warp = to_warp_array(sh_data, wp.vec3)
+    else:
+        shs_warp = None
+    
+    # Handle other model parameters
+    scales_warp = to_warp_array(scales, wp.vec3) if scales is not None else None
+    
+    # Handle rotations differently based on shape (matrices vs quaternions)
+    if rotations is not None:
+        rot_shape = rotations.shape[-1] if hasattr(rotations, 'shape') else rotations.size(-1)
+        if rot_shape == 4:  # Quaternions
+            rotations_warp = to_warp_array(rotations, wp.vec4)
+        else:  # 3x3 matrices
+            rotations_warp = to_warp_array(rotations, wp.mat33)
+    else:
+        rotations_warp = None
+    
+    # Handle camera parameters
+    viewmatrix_warp = viewmatrix if isinstance(viewmatrix, wp.mat44) else wp.mat44(viewmatrix.flatten())
+    projmatrix_warp = projmatrix if isinstance(projmatrix, wp.mat44) else wp.mat44(projmatrix.flatten())
+    campos_warp = campos if isinstance(campos, wp.vec3) else wp.vec3(campos[0], campos[1], campos[2])
+    
+    # --- Extract data from buffer dictionaries if provided ---
     if img_buffer is not None:
         ranges = img_buffer.get('ranges')
         final_Ts = img_buffer.get('final_Ts')
@@ -1060,11 +1100,9 @@ def backward(
         point_list = binning_buffer.get('point_list')
     
     if geom_buffer is not None:
-        # Use internal radii if none provided
+        # Use internal data if not provided directly
         if radii is None:
             radii = geom_buffer.get('radii')
-            
-        # Use geometric data from buffer if not provided directly
         if means2D is None:
             means2D = geom_buffer.get('means2D')
         if conic_opacity is None:
@@ -1072,45 +1110,45 @@ def backward(
         if rgb is None:
             rgb = geom_buffer.get('rgb')
     
-    # Initialize output arrays if not provided
-    if dL_dmean2D is None:
-        dL_dmean2D = wp.zeros(num_points, dtype=wp.vec2, device="cuda")
-    if dL_dconic is None:
-        dL_dconic = wp.zeros(num_points, dtype=wp.vec3, device="cuda")
-    if dL_dopacity is None:
-        dL_dopacity = wp.zeros(num_points, dtype=float, device="cuda")
-    if dL_dcolor is None:
-        dL_dcolor = wp.zeros(num_points, dtype=wp.vec3, device="cuda")
+    # Convert forward pass outputs to warp arrays if they're not already
+    radii_warp = to_warp_array(radii, int) if radii is not None else None
+    means2D_warp = to_warp_array(means2D, wp.vec2) if means2D is not None else None
+    conic_opacity_warp = to_warp_array(conic_opacity, wp.vec4) if conic_opacity is not None else None
+    rgb_warp = to_warp_array(rgb, wp.vec3) if rgb is not None else None
+    clamped_warp = to_warp_array(clamped, wp.uint32) if clamped is not None else None
     
-    if dL_dmean3D is None:
-        dL_dmean3D = wp.zeros(num_points, dtype=wp.vec3, device="cuda")
-    if dL_dcov3D is None:
-        dL_dcov3D = wp.zeros(num_points, dtype=VEC6, device="cuda")
-    if dL_dsh is None:
-        max_sh_coeffs = 16 if degree >= 3 else (degree + 1) * (degree + 1)
-        dL_dsh = wp.zeros(num_points * max_sh_coeffs, dtype=wp.vec3, device="cuda")
-    if dL_dscale is None:
-        dL_dscale = wp.zeros(num_points, dtype=wp.vec3, device="cuda")
-    if dL_drot is None:
-        dL_drot = wp.zeros(num_points, dtype=wp.vec4, device="cuda")
+    # --- Initialize output gradient arrays ---
+    dL_dmean2D = wp.zeros(num_points, dtype=wp.vec2, device="cuda")
+    dL_dconic = wp.zeros(num_points, dtype=wp.vec3, device="cuda")
+    dL_dopacity = wp.zeros(num_points, dtype=float, device="cuda")
+    dL_dcolor = wp.zeros(num_points, dtype=wp.vec3, device="cuda")
     
-    # Color pointer logic - use precomputed colors if provided, otherwise use colors from forward pass
-    color_ptr = colors_precomp if colors_precomp is not None else rgb
+    dL_dmean3D = wp.zeros(num_points, dtype=wp.vec3, device="cuda")
+    dL_dcov3D = wp.zeros(num_points, dtype=VEC6, device="cuda")
     
-    # Step 1: Compute loss gradients w.r.t. 2D parameters
-    # This corresponds to BACKWARD::render in the CUDA implementation
+    # SH gradients depend on degree
+    max_sh_coeffs = 16 if degree >= 3 else (degree + 1) * (degree + 1)
+    dL_dsh = wp.zeros(num_points * max_sh_coeffs, dtype=wp.vec3, device="cuda")
+    
+    dL_dscale = wp.zeros(num_points, dtype=wp.vec3, device="cuda")
+    dL_drot = wp.zeros(num_points, dtype=wp.vec4, device="cuda")
+    
+    # Use precomputed colors if provided, otherwise use colors from forward pass
+    color_ptr = colors_warp if colors_warp is not None else rgb_warp
+    
+    # --- Step 1: Compute loss gradients w.r.t. 2D parameters ---
     backward_render(
         ranges=ranges,
         point_list=point_list,
-        width=width,
-        height=height,
-        bg_color=background,
-        points_xy_image=means2D,
-        conic_opacity=conic_opacity,
+        width=image_width,
+        height=image_height,
+        bg_color=background_warp,
+        points_xy_image=means2D_warp,
+        conic_opacity=conic_opacity_warp,
         colors=color_ptr,
         final_Ts=final_Ts,
         n_contrib=n_contrib,
-        dL_dpixels=dL_dpixels,
+        dL_dpixels=dL_dpixels_warp,
         dL_dmean2D=dL_dmean2D,
         dL_dconic2D=dL_dconic,
         dL_dopacity=dL_dopacity,
@@ -1118,27 +1156,25 @@ def backward(
     )
     
     # Determine covariance pointer
-    # If precomputed, use that; otherwise, use from geometric state
-    cov3D_ptr = cov3D_precomp if cov3D_precomp is not None else geom_buffer.get('cov3D')
+    cov3D_ptr = geom_buffer.get('cov3D') if geom_buffer is not None else None
     
-    # Step 2: Compute gradients for 3D parameters
-    # This corresponds to BACKWARD::preprocess in the CUDA implementation
+    # --- Step 2: Compute gradients for 3D parameters ---
     backward_preprocess(
         num_points=num_points,
-        means=means3D,
-        means_2d=means2D,
-        radii=radii,
-        sh_coeffs=shs,
-        scales=scales,
-        rotations=rotations,
-        viewmatrix=viewmatrix,
-        projmatrix=projmatrix,
+        means=means3D_warp,
+        means_2d=means2D_warp,
+        radii=radii_warp,
+        sh_coeffs=shs_warp,
+        scales=scales_warp,
+        rotations=rotations_warp,
+        viewmatrix=viewmatrix_warp,
+        projmatrix=projmatrix_warp,
         fov_x=tan_fovx,
         fov_y=tan_fovy,
         cov3d=cov3D_ptr,
-        conic_opacity=conic_opacity,
-        viewdir=campos,  # For view-dependent effects
-        clamped=clamped,
+        conic_opacity=conic_opacity_warp,
+        viewdir=campos_warp,
+        clamped=clamped_warp,
         dL_dmean2D=dL_dmean2D,
         dL_dconic=dL_dconic,
         dL_dopacity=dL_dopacity,
@@ -1150,3 +1186,17 @@ def backward(
         block_size=block_size,
         sh_degree=degree
     )
+    
+    # Return all gradients in a dictionary for easy access
+    return {
+        'dL_dmean3D': dL_dmean3D,
+        'dL_dcolor': dL_dcolor,
+        'dL_dshs': dL_dsh,
+        'dL_dopacity': dL_dopacity,
+        'dL_dscale': dL_dscale,
+        'dL_drot': dL_drot,
+        # Include 2D gradients for completeness
+        'dL_dmean2D': dL_dmean2D,
+        'dL_dconic': dL_dconic,
+        'dL_dcov3D': dL_dcov3D
+    }
