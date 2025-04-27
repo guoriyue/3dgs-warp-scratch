@@ -68,6 +68,7 @@ def example_gaussians(image_width=700, image_height=700, fovx=45.0, fovy=45.0, z
     opacities = np.ones((n, 1), dtype=np.float32)
     scales = np.ones((n, 3), dtype=np.float32)
     rotations = np.array([np.eye(3)] * n, dtype=np.float32)
+    colors = np.ones((n, 3), dtype=np.float32)
     
     # Reuse the camera setup function
     camera_params = setup_example_camera(
@@ -79,7 +80,7 @@ def example_gaussians(image_width=700, image_height=700, fovx=45.0, fovy=45.0, z
         zfar=zfar
     )
     
-    return pts, shs, scales, rotations, opacities, camera_params
+    return pts, shs, scales, colors, rotations, opacities, camera_params
 
 
 
@@ -235,7 +236,7 @@ if __name__ == "__main__":
             exit(1)
     else:
         # Use example Gaussians
-        pts, shs, scales, rotations, opacities, camera_params = example_gaussians(
+        pts, shs, scales, colors, rotations, opacities, camera_params = example_gaussians(
             image_width=image_width,
             image_height=image_height,
             fovx=fovx,
@@ -264,7 +265,7 @@ if __name__ == "__main__":
     rendered_image, depth_image = render_gaussians(
         background=background,
         means3D=pts,
-        colors=colors if colors is not None else None,
+        colors=colors,
         opacity=opacities,
         scales=scales,
         rotations=rotations,

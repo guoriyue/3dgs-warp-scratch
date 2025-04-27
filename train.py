@@ -431,7 +431,8 @@ class NeRFGaussianSplattingTrainer:
         
         # Initialize default configuration
         self.config = {
-            'num_iterations': 30000,
+            # 'num_iterations': 30000,
+            'num_iterations': 1000,
             'learning_rate': 0.01,
             'num_points': 5000,
             'densification_interval': 100,
