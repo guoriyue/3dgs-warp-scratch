@@ -120,7 +120,7 @@ def sh_backward_kernel(
     # --- Degree 0 ---
     # Direct assignment for clarity (matching CUDA style)
     dRGBdsh0 = SH_C0
-    wp.atomic_add(dL_dshs_global, base_sh_idx, dRGBdsh0 * dL_dcolor)
+    wp.atomic_add(dL_dshs_global, base_sh_idx, dRGBdsh0 * dL_dRGB)
 
     # --- Degree 1 ---
     if degree > 0:
