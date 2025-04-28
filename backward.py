@@ -80,8 +80,8 @@ def sh_backward_kernel(
     dL_dcolor: wp.array(dtype=wp.vec3),   # Grad L w.r.t. *final* gaussian color (N, 3)
 
     # --- Outputs (Accumulate) ---
-    dL_dmeans_global: wp.array(dtype=wp.vec3), # Accumulate mean grads here (N, 3)
-    dL_dshs_global: wp.array(dtype=wp.vec3)   # Accumulate SH grads here (N * 16, 3)
+    dL_dmeans: wp.array(dtype=wp.vec3), # Accumulate mean grads here (N, 3)
+    dL_dshs: wp.array(dtype=wp.vec3)   # Accumulate SH grads here (N * 16, 3)
 ):
     idx = wp.tid()
     if idx >= num_points or radii[idx] <= 0: # Skip if not rendered
@@ -120,7 +120,7 @@ def sh_backward_kernel(
     # --- Degree 0 ---
     # Direct assignment for clarity (matching CUDA style)
     dRGBdsh0 = SH_C0
-    wp.atomic_add(dL_dshs_global, base_sh_idx, dRGBdsh0 * dL_dRGB)
+    dL_dshs[base_sh_idx] = dRGBdsh0 * dL_dRGB
 
     # --- Degree 1 ---
     if degree > 0:
@@ -133,9 +133,9 @@ def sh_backward_kernel(
         dRGBdsh2 = SH_C1 * z
         dRGBdsh3 = -SH_C1 * x
         
-        wp.atomic_add(dL_dshs_global, base_sh_idx + 1, dRGBdsh1 * dL_dRGB)
-        wp.atomic_add(dL_dshs_global, base_sh_idx + 2, dRGBdsh2 * dL_dRGB)
-        wp.atomic_add(dL_dshs_global, base_sh_idx + 3, dRGBdsh3 * dL_dRGB)
+        dL_dshs[base_sh_idx + 1] = dRGBdsh1 * dL_dRGB
+        dL_dshs[base_sh_idx + 2] = dRGBdsh2 * dL_dRGB
+        dL_dshs[base_sh_idx + 3] = dRGBdsh3 * dL_dRGB
 
         # Gradient components w.r.t. direction
         dRGBdx = -SH_C1 * sh3
@@ -165,11 +165,11 @@ def sh_backward_kernel(
             dRGBdsh7 = C2_3 * xz
             dRGBdsh8 = C2_4 * (xx - yy)
             
-            wp.atomic_add(dL_dshs_global, base_sh_idx + 4, dRGBdsh4 * dL_dRGB)
-            wp.atomic_add(dL_dshs_global, base_sh_idx + 5, dRGBdsh5 * dL_dRGB)
-            wp.atomic_add(dL_dshs_global, base_sh_idx + 6, dRGBdsh6 * dL_dRGB)
-            wp.atomic_add(dL_dshs_global, base_sh_idx + 7, dRGBdsh7 * dL_dRGB)
-            wp.atomic_add(dL_dshs_global, base_sh_idx + 8, dRGBdsh8 * dL_dRGB)
+            dL_dshs[base_sh_idx + 4] = dRGBdsh4 * dL_dRGB
+            dL_dshs[base_sh_idx + 5] = dRGBdsh5 * dL_dRGB
+            dL_dshs[base_sh_idx + 6] = dRGBdsh6 * dL_dRGB
+            dL_dshs[base_sh_idx + 7] = dRGBdsh7 * dL_dRGB
+            dL_dshs[base_sh_idx + 8] = dRGBdsh8 * dL_dRGB
 
             # Accumulate gradients w.r.t. direction (exactly matching CUDA)
             dRGBdx += C2_0 * y * sh4 + C2_2 * 2.0 * -x * sh6 + C2_3 * z * sh7 + C2_4 * 2.0 * x * sh8
@@ -201,13 +201,13 @@ def sh_backward_kernel(
                 dRGBdsh14 = C3_5 * z * (xx - yy)
                 dRGBdsh15 = C3_6 * x * (xx - 3.0 * yy)
                 
-                wp.atomic_add(dL_dshs_global, base_sh_idx + 9, dRGBdsh9 * dL_dRGB)
-                wp.atomic_add(dL_dshs_global, base_sh_idx + 10, dRGBdsh10 * dL_dRGB)
-                wp.atomic_add(dL_dshs_global, base_sh_idx + 11, dRGBdsh11 * dL_dRGB)
-                wp.atomic_add(dL_dshs_global, base_sh_idx + 12, dRGBdsh12 * dL_dRGB)
-                wp.atomic_add(dL_dshs_global, base_sh_idx + 13, dRGBdsh13 * dL_dRGB)
-                wp.atomic_add(dL_dshs_global, base_sh_idx + 14, dRGBdsh14 * dL_dRGB)
-                wp.atomic_add(dL_dshs_global, base_sh_idx + 15, dRGBdsh15 * dL_dRGB)
+                dL_dshs[base_sh_idx + 9] = dRGBdsh9 * dL_dRGB
+                dL_dshs[base_sh_idx + 10] = dRGBdsh10 * dL_dRGB
+                dL_dshs[base_sh_idx + 11] = dRGBdsh11 * dL_dRGB
+                dL_dshs[base_sh_idx + 12] = dRGBdsh12 * dL_dRGB
+                dL_dshs[base_sh_idx + 13] = dRGBdsh13 * dL_dRGB
+                dL_dshs[base_sh_idx + 14] = dRGBdsh14 * dL_dRGB
+                dL_dshs[base_sh_idx + 15] = dRGBdsh15 * dL_dRGB
 
                 # Accumulate dRGBdx (matching CUDA's expression structure)
                 dRGBdx += (
@@ -252,7 +252,7 @@ def sh_backward_kernel(
 
     # --- Accumulate gradients to global arrays ---
     # In CUDA: dL_dmeans[idx] += glm::vec3(dL_dmean.x, dL_dmean.y, dL_dmean.z);
-    wp.atomic_add(dL_dmeans_global, idx, dL_dmeans_local)
+    dL_dmeans[idx] += dL_dmeans_local
 
 
 @wp.kernel
@@ -268,13 +268,13 @@ def compute_cov2d_backward_kernel(
     dL_dconics: wp.array(dtype=wp.vec3),    # Grad L w.r.t. conic (a, b, c) (N, 3)
 
     # --- Outputs (Accumulate/Write) ---
-    dL_dmeans_global: wp.array(dtype=wp.vec3), # Accumulate mean grads here (N, 3)
-    dL_dcov3Ds_global: wp.array(dtype=VEC6)   # Write 3D cov grads here (N, 6)
+    dL_dmeans: wp.array(dtype=wp.vec3), # Accumulate mean grads here (N, 3)
+    dL_dcov3Ds: wp.array(dtype=VEC6)   # Write 3D cov grads here (N, 6)
 ):
     idx = wp.tid()
     if idx >= num_points or radii[idx] <= 0: # Skip if not rendered
         # Zero out dL_dcov3Ds to ensure we don't keep old values
-        dL_dcov3Ds_global[idx] = VEC6(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        dL_dcov3Ds[idx] = VEC6(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         return
 
     # --- Recompute intermediates from forward pass ---
@@ -291,7 +291,7 @@ def compute_cov2d_backward_kernel(
     tz = t[2]
     # Need to handle tz <= 0 case
     if tz <= 0.0:
-        dL_dcov3Ds_global[idx] = VEC6(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        dL_dcov3Ds[idx] = VEC6(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         return # Cannot compute gradient if point is behind camera
 
     inv_tz = 1.0 / tz
@@ -382,7 +382,7 @@ def compute_cov2d_backward_kernel(
     dL_dc01 = 2.0 * dL_dVrk_mat[0,1]
     dL_dc02 = 2.0 * dL_dVrk_mat[0,2]
     dL_dc12 = 2.0 * dL_dVrk_mat[1,2]
-    dL_dcov3Ds_global[idx] = VEC6(dL_dc00, dL_dc01, dL_dc02, dL_dc11, dL_dc12, dL_dc22)
+    dL_dcov3Ds[idx] = VEC6(dL_dc00, dL_dc01, dL_dc02, dL_dc11, dL_dc12, dL_dc22)
 
     # Gradients of loss w.r.t. T (transformation matrix)
     # Using the formula from CUDA implementation
@@ -419,7 +419,7 @@ def compute_cov2d_backward_kernel(
     dL_dmean_from_cov = wp.transform_vector(view_matrix, dL_dt)
 
     # Accumulate gradient w.r.t means
-    wp.atomic_add(dL_dmeans_global, idx, dL_dmean_from_cov)
+    dL_dmeans[idx] += dL_dmean_from_cov
 
 
 @wp.kernel
@@ -433,14 +433,14 @@ def compute_cov3d_backward_kernel(
     dL_dcov3Ds: wp.array(dtype=VEC6),   # Grad L w.r.t packed 3D cov (N, 6)
 
     # --- Outputs ---
-    dL_dscales_global: wp.array(dtype=wp.vec3), # Write scale grads here (N, 3)
-    dL_drots_global: wp.array(dtype=wp.vec4)   # Write rot grads here (N, 4)
+    dL_dscales: wp.array(dtype=wp.vec3), # Write scale grads here (N, 3)
+    dL_drots: wp.array(dtype=wp.vec4)   # Write rot grads here (N, 4)
 ):
     idx = wp.tid()
     # Skip if not rendered OR if grad input is zero (e.g., from compute_cov2d_backward)
     if idx >= num_points or radii[idx] <= 0:
-        dL_dscales_global[idx] = wp.vec3(0.0, 0.0, 0.0)
-        dL_drots_global[idx] = wp.vec4(0.0, 0.0, 0.0, 0.0)
+        dL_dscales[idx] = wp.vec3(0.0, 0.0, 0.0)
+        dL_drots[idx] = wp.vec4(0.0, 0.0, 0.0, 0.0)
         return
 
     # --- Recompute intermediates ---
@@ -498,7 +498,7 @@ def compute_cov3d_backward_kernel(
         wp.dot(Rt[1], dL_dMt[1]), 
         wp.dot(Rt[2], dL_dMt[2])
     )
-    dL_dscales_global[idx] = dL_dscale * scale_modifier
+    dL_dscales[idx] = dL_dscale * scale_modifier
 
     # 4. Scale dL_dMt by scale factors for quaternion gradient calculation
     dL_dMt_scaled = wp.mat33(
@@ -529,7 +529,7 @@ def compute_cov3d_backward_kernel(
             4.0 * z * (dL_dMt_scaled[1, 1] + dL_dMt_scaled[0, 0])
 
     # 6. Convert back to Warp's quaternion ordering (x, y, z, r/w)
-    dL_drots_global[idx] = wp.vec4(dL_dx, dL_dy, dL_dz, dL_dr)
+    dL_drots[idx] = wp.vec4(dL_dx, dL_dy, dL_dz, dL_dr)
 
 @wp.kernel
 def wp_render_backward_kernel(
@@ -706,7 +706,7 @@ def compute_projection_backward_kernel(
     dL_dmean2D: wp.array(dtype=wp.vec2), # Grad of loss w.r.t. 2D projected means (N, 2)
     
     # --- Outputs (Accumulate) ---
-    dL_dmeans_global: wp.array(dtype=wp.vec3) # Accumulate mean grads here (N, 3)
+    dL_dmeans: wp.array(dtype=wp.vec3) # Accumulate mean grads here (N, 3)
 ):
     """Compute gradients of 3D means due to projection to 2D.
     
@@ -750,8 +750,7 @@ def compute_projection_backward_kernel(
     dL_dmean[2] = (proj_matrix[2, 0] * m_w - proj_matrix[2, 3] * mul1) * dL_dmean2D_val[0] + \
                  (proj_matrix[2, 1] * m_w - proj_matrix[2, 3] * mul2) * dL_dmean2D_val[1]
     
-    # Accumulate gradient to global array
-    wp.atomic_add(dL_dmeans_global, idx, dL_dmean)
+    dL_dmeans[idx] += dL_dmean
 
 def backward_preprocess(
     # Camera and model parameters
@@ -766,11 +765,13 @@ def backward_preprocess(
     projmatrix: wp.mat44,                     # Camera projection matrix
     fov_x: float,                             # Camera horizontal FOV
     fov_y: float,                             # Camera vertical FOV
+    focal_x: float,
+    focal_y: float,
     
     # Intermediate data from forward
-    cov3d: wp.array(dtype=wp.mat33),         # 3D covariance matrices
+    cov3d: wp.array(dtype=wp.mat33),         # 3D covariance matrices (or VEC6 depending on packing)
     conic_opacity: wp.array(dtype=wp.vec4),  # 2D conics and opacity
-    viewdir: wp.array(dtype=wp.vec3),        # View directions
+    viewdir: wp.array(dtype=wp.vec3),        # View directions (should be campos)
     clamped: wp.array(dtype=wp.uint32),      # Clamping states
     
     # Incoming gradients from render backward
@@ -786,67 +787,33 @@ def backward_preprocess(
     dL_drots: wp.array(dtype=wp.vec4),       # Output grad for rotations
     
     # Optional parameters
-    block_size: int = 128,
+    scale_modifier: float = 1.0,
     sh_degree: int = 3
 ):
     """
     Orchestrates the backward pass for 3D Gaussian Splatting by coordinating several kernel calls.
-    
-    Similar to the CUDA BACKWARD::preprocess function, this handles gradient propagation for:
-    1. 2D conic matrices and mean gradients due to conic computation
-    2. 3D means due to projection
-    3. SH coefficients due to color computation
-    4. Scales and rotations due to 3D covariance computation
-    
-    Args:
-        num_points: Number of Gaussian points
-        means: 3D mean positions
-        means_2d: 2D projected positions
-        radii: Computed radii from forward pass
-        sh_coeffs: Spherical harmonics coefficients
-        scales: Scale parameters
-        rotations: Rotation quaternions
-        viewmatrix: Camera view matrix
-        projmatrix: Camera projection matrix
-        fov_x, fov_y: Camera field of view
-        cov3d: 3D covariance matrices from forward pass
-        conic_opacity: 2D conic matrices and opacity
-        viewdir: View directions from forward pass
-        clamped: Clamping states from forward pass
-        dL_dmean2D: Gradient of loss w.r.t. 2D means
-        dL_dconic: Gradient of loss w.r.t. 2D conics
-        dL_dopacity: Gradient of loss w.r.t. opacity
-        dL_dcolors: Gradient of loss w.r.t. colors
-        dL_dmeans: Output gradient for 3D means
-        dL_dsh: Output gradient for SH coefficients
-        dL_dscales: Output gradient for scales
-        dL_drots: Output gradient for rotations
-        block_size: CUDA block size
-        sh_degree: Degree of spherical harmonics
     """
-    # Compute temporary buffer for 2D mean gradients from conic backward
-    temp_dL_dmean2D = wp.zeros_like(dL_dmean2D)
+    # Create buffer for 3D covariance gradients
+    dL_dcov3D = wp.zeros(num_points, dtype=VEC6, device=DEVICE)
     
     # Step 1: Compute gradients for 2D covariance (conic matrix)
     # This also computes gradients w.r.t. 3D means due to conic computation
-    num_blocks = (num_points + block_size - 1) // block_size
     wp.launch(
         kernel=compute_cov2d_backward_kernel,
-        dim=num_blocks * block_size,
+        dim=num_points,
         inputs=[
-            num_points,
-            means,
-            means_2d,
-            viewmatrix,
-            projmatrix,
-            fov_x,
-            fov_y,
-            dL_dconic,
-            cov3d
-        ],
-        outputs=[
-            temp_dL_dmean2D,  # Temporary buffer for mean2D grads from conic
-            dL_dmeans        # Accumulate to final means gradients
+            num_points,            # P
+            means,                 # means3D
+            cov3d,                 # cov3Ds
+            radii,                 # radii
+            focal_x,               # focal_x
+            focal_y,               # focal_y
+            fov_x,                 # tan_fovx
+            fov_y,                 # tan_fovy
+            viewmatrix,            # viewmatrix
+            dL_dconic,             # dL_dconic
+            dL_dmeans,             # dL_dmean3D (outputs)
+            dL_dcov3D              # dL_dcov3D (outputs)
         ],
         device=DEVICE
     )
@@ -854,15 +821,13 @@ def backward_preprocess(
     # Step 2: Compute gradients for 3D means due to projection
     wp.launch(
         kernel=compute_projection_backward_kernel,
-        dim=num_blocks * block_size,
+        dim=num_points,
         inputs=[
             num_points,
             means,
             radii,
             projmatrix,
-            dL_dmean2D  # Use original 2D mean gradients from render backward
-        ],
-        outputs=[
+            dL_dmean2D,
             dL_dmeans  # Accumulate to final means gradients
         ],
         device=DEVICE
@@ -871,7 +836,7 @@ def backward_preprocess(
     # Step 3: Compute gradients for SH coefficients
     wp.launch(
         kernel=sh_backward_kernel,
-        dim=num_blocks * block_size,
+        dim=num_points,
         inputs=[
             num_points,
             sh_degree,
@@ -884,26 +849,20 @@ def backward_preprocess(
             dL_dmeans,
             dL_dsh
         ],
-        outputs=[
-            dL_dsh,     # Output SH gradients
-            dL_dmeans   # Accumulate view-dependent gradients to means
-        ],
         device=DEVICE
     )
     
     # Step 4: Compute gradients for scales and rotations
     wp.launch(
         kernel=compute_cov3d_backward_kernel,
-        dim=num_blocks * block_size,
+        dim=num_points,
         inputs=[
             num_points,
             scales,
             rotations,
-            cov3d,
-            viewmatrix,
-            dL_dconic
-        ],
-        outputs=[
+            radii,
+            scale_modifier,
+            dL_dcov3D,
             dL_dscales,  # Output scale gradients
             dL_drots     # Output rotation gradients
         ],
@@ -1008,7 +967,6 @@ def backward(
     img_buffer=None,
     # --- Algorithm parameters ---
     degree=3,
-    block_size=128,
     debug=False,
 ):
     """
@@ -1046,7 +1004,6 @@ def backward(
         binning_buffer: Dictionary holding binning state
         img_buffer: Dictionary holding image state
         degree: SH degree (0-3)
-        block_size: CUDA block size
         debug: Enable debug output
         
     Returns:
@@ -1196,6 +1153,8 @@ def backward(
         projmatrix=projmatrix_warp,
         fov_x=tan_fovx,
         fov_y=tan_fovy,
+        focal_x=focal_x,
+        focal_y=focal_y,
         cov3d=cov3D_ptr,
         conic_opacity=conic_opacity_warp,
         viewdir=campos_warp,
@@ -1208,7 +1167,6 @@ def backward(
         dL_dsh=dL_dsh,
         dL_dscales=dL_dscale,
         dL_drots=dL_drot,
-        block_size=block_size,
         sh_degree=degree
     )
     
