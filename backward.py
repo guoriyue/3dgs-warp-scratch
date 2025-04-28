@@ -4,14 +4,38 @@ import numpy as np
 import warp as wp
 import math
 from config import * # Assuming TILE_M, TILE_N, VEC6, DEVICE are defined here
-
+from utils import *
+from structures import GaussianParams
 # Initialize Warp if not already done elsewhere
 # wp.init()
+
 
 
 # --- Spherical Harmonics Constants ---
 SH_C0 = 0.28209479177387814
 SH_C1 = 0.4886025119029199
+
+
+@wp.func
+def wp_vec3_mul_element(a: wp.vec3, b: wp.vec3) -> wp.vec3:
+    return wp.vec3(a[0] * b[0], a[1] * b[1], a[2] * b[2])
+
+# Reinstate the element-wise vector square root helper function
+@wp.func
+def wp_vec3_sqrt(a: wp.vec3) -> wp.vec3:
+    return wp.vec3(wp.sqrt(a[0]), wp.sqrt(a[1]), wp.sqrt(a[2]))
+
+# Add element-wise vector division helper function
+@wp.func
+def wp_vec3_div_element(a: wp.vec3, b: wp.vec3) -> wp.vec3:
+    # Add small epsilon to denominator to prevent division by zero
+    # (although Adam's epsilon should mostly handle this)
+    safe_b = wp.vec3(b[0] + 1e-9, b[1] + 1e-9, b[2] + 1e-9)
+    return wp.vec3(a[0] / safe_b[0], a[1] / safe_b[1], a[2] / safe_b[2])
+
+@wp.func
+def wp_vec3_add_element(a: wp.vec3, b: wp.vec3) -> wp.vec3:
+    return wp.vec3(a[0] + b[0], a[1] + b[1], a[2] + b[2])
 
 @wp.func
 def dnormvdv(v: wp.vec3, dv: wp.vec3) -> wp.vec3:
@@ -82,7 +106,8 @@ def sh_backward_kernel(
     # --- Apply clamping mask to input gradient ---
     # In CUDA: dL_dRGB.x *= clamped[3 * idx + 0] ? 0 : 1;
     # Here we use: 1.0 - clamped_state which gives 0 for clamped, 1 for not clamped
-    dL_dRGB = dL_dcolor[idx] * (wp.vec3(1.0, 1.0, 1.0) - clamped_state[idx])
+    dL_dRGB = dL_dcolor[idx]
+    dL_dRGB = wp_vec3_mul_element(dL_dRGB, wp_vec3_add_element(wp.vec3(1.0, 1.0, 1.0), -1.0 * clamped_state[idx]))
 
     # Initialize gradients w.r.t. direction components (dRawColor/ddir)
     dRGBdx = wp.vec3(0.0, 0.0, 0.0)
@@ -95,7 +120,7 @@ def sh_backward_kernel(
     # --- Degree 0 ---
     # Direct assignment for clarity (matching CUDA style)
     dRGBdsh0 = SH_C0
-    wp.atomic_add(dL_dshs_global, base_sh_idx, dRGBdsh0 * dL_dRGB)
+    wp.atomic_add(dL_dshs_global, base_sh_idx, dRGBdsh0 * dL_dcolor)
 
     # --- Degree 1 ---
     if degree > 0:
@@ -258,7 +283,7 @@ def compute_cov2d_backward_kernel(
     dL_dconic = dL_dconics[idx] # Gradient w.r.t conic
 
     # 1. Transform means to view space 't'
-    t = wp.transform(view_matrix, mean) # Affine transform
+    t = wp.transform_point(view_matrix, mean) # Affine transform
 
     # 2. View space clamping logic
     limx = 1.3 * tan_fovx
@@ -542,11 +567,11 @@ def wp_render_backward_kernel(
     similar to the forward rendering pass but accumulating gradients.
     """
     # Get pixel coordinates
-    tile_x, tile_y = wp.tid()
+    tile_x, tile_y, tid_x, tid_y = wp.tid()
     
     # Calculate pixel position
-    pix_x = tile_x * TILE_M + wp.tid_x()
-    pix_y = tile_y * TILE_N + wp.tid_y()
+    pix_x = tile_x * TILE_M + tid_x
+    pix_y = tile_y * TILE_N + tid_y
     
     # Skip if pixel is outside image bounds
     inside = (pix_x < W) and (pix_y < H)
@@ -569,7 +594,7 @@ def wp_render_backward_kernel(
     # Initialize working variables
     T = T_final  # Current accumulated transparency
     accum_rec = wp.vec3(0.0, 0.0, 0.0)  # Accumulated color (working backwards)
-    last_alpha = 0.0  # Alpha from the last processed Gaussian
+    last_alpha = float(0.0)  # Alpha from the last processed Gaussian
     last_color = wp.vec3(0.0, 0.0, 0.0)  # Color from the last processed Gaussian
     
     # Get gradient of loss w.r.t. this pixel
@@ -823,7 +848,7 @@ def backward_preprocess(
             temp_dL_dmean2D,  # Temporary buffer for mean2D grads from conic
             dL_dmeans        # Accumulate to final means gradients
         ],
-        device="cuda"
+        device=DEVICE
     )
     
     # Step 2: Compute gradients for 3D means due to projection
@@ -840,7 +865,7 @@ def backward_preprocess(
         outputs=[
             dL_dmeans  # Accumulate to final means gradients
         ],
-        device="cuda"
+        device=DEVICE
     )
     
     # Step 3: Compute gradients for SH coefficients
@@ -863,7 +888,7 @@ def backward_preprocess(
             dL_dsh,     # Output SH gradients
             dL_dmeans   # Accumulate view-dependent gradients to means
         ],
-        device="cuda"
+        device=DEVICE
     )
     
     # Step 4: Compute gradients for scales and rotations
@@ -882,7 +907,7 @@ def backward_preprocess(
             dL_dscales,  # Output scale gradients
             dL_drots     # Output rotation gradients
         ],
-        device="cuda"
+        device=DEVICE
     )
     
     return dL_dmeans, dL_dsh, dL_dscales, dL_drots
@@ -1051,12 +1076,12 @@ def backward(
         if shape_check and data.shape[1:] != shape_check:
             if debug:
                 print(f"Warning: Expected shape {shape_check}, got {data.shape[1:]}")
-        return wp.array(data, dtype=dtype, device="cuda")
+        return wp.array(data, dtype=dtype, device=DEVICE)
     
     # Convert inputs to warp arrays
     background_warp = background if isinstance(background, wp.vec3) else wp.vec3(background[0], background[1], background[2])
     means3D_warp = to_warp_array(means3D, wp.vec3)
-    dL_dpixels_warp = to_warp_array(dL_dpixels, wp.vec3) if not isinstance(dL_dpixels, wp.array2d) else dL_dpixels
+    dL_dpixels_warp = to_warp_array(dL_dpixels, wp.vec3) if not isinstance(dL_dpixels, wp.array) else dL_dpixels
     
     # Get number of points
     num_points = means3D_warp.shape[0]
@@ -1118,20 +1143,20 @@ def backward(
     clamped_warp = to_warp_array(clamped, wp.uint32) if clamped is not None else None
     
     # --- Initialize output gradient arrays ---
-    dL_dmean2D = wp.zeros(num_points, dtype=wp.vec2, device="cuda")
-    dL_dconic = wp.zeros(num_points, dtype=wp.vec3, device="cuda")
-    dL_dopacity = wp.zeros(num_points, dtype=float, device="cuda")
-    dL_dcolor = wp.zeros(num_points, dtype=wp.vec3, device="cuda")
+    dL_dmean2D = wp.zeros(num_points, dtype=wp.vec2, device=DEVICE)
+    dL_dconic = wp.zeros(num_points, dtype=wp.vec3, device=DEVICE)
+    dL_dopacity = wp.zeros(num_points, dtype=float, device=DEVICE)
+    dL_dcolor = wp.zeros(num_points, dtype=wp.vec3, device=DEVICE)
     
-    dL_dmean3D = wp.zeros(num_points, dtype=wp.vec3, device="cuda")
-    dL_dcov3D = wp.zeros(num_points, dtype=VEC6, device="cuda")
+    dL_dmean3D = wp.zeros(num_points, dtype=wp.vec3, device=DEVICE)
+    dL_dcov3D = wp.zeros(num_points, dtype=VEC6, device=DEVICE)
     
     # SH gradients depend on degree
     max_sh_coeffs = 16 if degree >= 3 else (degree + 1) * (degree + 1)
-    dL_dsh = wp.zeros(num_points * max_sh_coeffs, dtype=wp.vec3, device="cuda")
+    dL_dsh = wp.zeros(num_points * max_sh_coeffs, dtype=wp.vec3, device=DEVICE)
     
-    dL_dscale = wp.zeros(num_points, dtype=wp.vec3, device="cuda")
-    dL_drot = wp.zeros(num_points, dtype=wp.vec4, device="cuda")
+    dL_dscale = wp.zeros(num_points, dtype=wp.vec3, device=DEVICE)
+    dL_drot = wp.zeros(num_points, dtype=wp.vec4, device=DEVICE)
     
     # Use precomputed colors if provided, otherwise use colors from forward pass
     color_ptr = colors_warp if colors_warp is not None else rgb_warp
@@ -1200,3 +1225,175 @@ def backward(
         'dL_dconic': dL_dconic,
         'dL_dcov3D': dL_dcov3D
     }
+
+
+@wp.kernel
+def compute_image_loss(
+    rendered: wp.array2d(dtype=wp.vec3),
+    target: wp.array2d(dtype=wp.vec3),
+    loss_buffer: wp.array(dtype=float),
+    width: int,
+    height: int
+):
+    i, j = wp.tid()
+    if i >= width or j >= height:
+        return
+    
+    # Compute squared difference for each pixel component
+    rendered_pixel = rendered[i, j]
+    target_pixel = target[i, j]
+    diff = rendered_pixel - target_pixel
+    squared_diff = diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2]
+    
+    # Atomic add to loss buffer
+    wp.atomic_add(loss_buffer, 0, squared_diff)
+
+@wp.kernel
+def backprop_pixel_gradients(
+    rendered: wp.array2d(dtype=wp.vec3),
+    target: wp.array2d(dtype=wp.vec3),
+    pixel_grad: wp.array2d(dtype=wp.vec3),
+    width: int,
+    height: int
+):
+    i, j = wp.tid()
+    if i >= width or j >= height:
+        return
+    
+    # Compute gradient (2 * diff for MSE loss)
+    rendered_pixel = rendered[i, j]
+    target_pixel = target[i, j]
+    diff = rendered_pixel - target_pixel
+    
+    # 2 * diff for mean squared error gradient
+    pixel_grad[i, j] = wp.vec3(
+        2.0 * diff[0], 
+        2.0 * diff[1], 
+        2.0 * diff[2]
+    )
+
+@wp.kernel
+def densify_gaussians(
+    positions: wp.array(dtype=wp.vec3),
+    scales: wp.array(dtype=wp.vec3),
+    rotations: wp.array(dtype=wp.mat33),
+    opacities: wp.array(dtype=float),
+    shs: wp.array(dtype=wp.vec3),
+    pos_grads: wp.array(dtype=wp.vec3),
+    scale_grads: wp.array(dtype=wp.vec3),
+    num_points: int,
+    noise_scale: float
+):
+    i = wp.tid()
+    if i >= num_points:
+        return
+    
+    # Get gradient magnitudes to identify high-gradient Gaussians
+    pos_grad_mag = wp.length(pos_grads[i])
+    scale_grad_mag = wp.length(scale_grads[i])
+    
+    # We just add noise to positions based on gradients
+    # In a full implementation, you'd clone Gaussians with high gradient magnitude
+    if pos_grad_mag > 0.1 or scale_grad_mag > 0.1:
+        # Add random noise to position
+        seed = wp.uint32(i)
+        noise = wp.vec3(
+            wp.randn(seed) * noise_scale,
+            wp.randn(seed + wp.uint32(1000)) * noise_scale,
+            wp.randn(seed + wp.uint32(2000)) * noise_scale
+        )
+        positions[i] = positions[i] + noise
+
+@wp.kernel
+def prune_gaussians(
+    positions: wp.array(dtype=wp.vec3),
+    scales: wp.array(dtype=wp.vec3),
+    rotations: wp.array(dtype=wp.mat33),
+    opacities: wp.array(dtype=float),
+    shs: wp.array(dtype=wp.vec3),
+    opacity_threshold: float,
+    valid_mask: wp.array(dtype=int),
+    num_points: int
+):
+    i = wp.tid()
+    if i >= num_points:
+        return
+    
+    # Mark Gaussians for keeping or removal
+    if opacities[i] > opacity_threshold:
+        valid_mask[i] = 1
+    else:
+        valid_mask[i] = 0
+
+
+@wp.kernel
+def adam_update(
+    params: GaussianParams,
+    grads: GaussianParams,
+    m: GaussianParams,
+    v: GaussianParams,
+    num_points: int,
+    lr: float,
+    beta1: float,
+    beta2: float,
+    epsilon: float,
+    iteration: int
+):
+    i = wp.tid()
+    if i >= num_points:
+        return
+    
+    # Bias correction terms
+    bias_correction1 = 1.0 - wp.pow(beta1, float(iteration + 1))
+    bias_correction2 = 1.0 - wp.pow(beta2, float(iteration + 1))
+    
+    # Update positions
+    m.positions[i] = beta1 * m.positions[i] + (1.0 - beta1) * grads.positions[i]
+    # Use the helper function for element-wise multiplication
+    v.positions[i] = beta2 * v.positions[i] + (1.0 - beta2) * wp_vec3_mul_element(grads.positions[i], grads.positions[i])
+    # Use distinct names for corrected moments per parameter type
+    m_pos_corrected = m.positions[i] / bias_correction1
+    v_pos_corrected = v.positions[i] / bias_correction2
+    # Use the helper function for element-wise sqrt and division
+    denominator_pos = wp_vec3_sqrt(v_pos_corrected) + wp.vec3(epsilon, epsilon, epsilon)
+    params.positions[i] = params.positions[i] - lr * wp_vec3_div_element(m_pos_corrected, denominator_pos)
+    
+    # Update scales (with some constraints to keep them positive)
+    m.scales[i] = beta1 * m.scales[i] + (1.0 - beta1) * grads.scales[i]
+    # Use the helper function for element-wise multiplication
+    v.scales[i] = beta2 * v.scales[i] + (1.0 - beta2) * wp_vec3_mul_element(grads.scales[i], grads.scales[i])
+    # Use distinct names for corrected moments per parameter type
+    m_scale_corrected = m.scales[i] / bias_correction1
+    v_scale_corrected = v.scales[i] / bias_correction2
+    # Use the helper function for element-wise sqrt and division
+    denominator_scale = wp_vec3_sqrt(v_scale_corrected) + wp.vec3(epsilon, epsilon, epsilon)
+    scale_update = lr * wp_vec3_div_element(m_scale_corrected, denominator_scale)
+    params.scales[i] = wp.vec3(
+        wp.max(params.scales[i][0] - scale_update[0], 0.001),
+        wp.max(params.scales[i][1] - scale_update[1], 0.001),
+        wp.max(params.scales[i][2] - scale_update[2], 0.001)
+    )
+    
+    # Update opacity (with clamping to [0,1])
+    m.opacities[i] = beta1 * m.opacities[i] + (1.0 - beta1) * grads.opacities[i]
+    # Opacity is scalar, direct multiplication is fine
+    v.opacities[i] = beta2 * v.opacities[i] + (1.0 - beta2) * (grads.opacities[i] * grads.opacities[i])
+    # Use distinct names for corrected moments per parameter type
+    m_opacity_corrected = m.opacities[i] / bias_correction1
+    v_opacity_corrected = v.opacities[i] / bias_correction2
+    # Opacity is scalar, direct wp.sqrt is fine here
+    opacity_update = lr * m_opacity_corrected / (wp.sqrt(v_opacity_corrected) + epsilon)
+    params.opacities[i] = wp.max(wp.min(params.opacities[i] - opacity_update, 1.0), 0.0)
+    
+    # Update SH coefficients
+    for j in range(16):
+        idx = i * 16 + j
+        m.shs[idx] = beta1 * m.shs[idx] + (1.0 - beta1) * grads.shs[idx]
+        # Use the helper function for element-wise multiplication
+        v.shs[idx] = beta2 * v.shs[idx] + (1.0 - beta2) * wp_vec3_mul_element(grads.shs[idx], grads.shs[idx])
+        # Use distinct names for corrected moments per parameter type
+        m_sh_corrected = m.shs[idx] / bias_correction1
+        v_sh_corrected = v.shs[idx] / bias_correction2
+        # Use the helper function for element-wise sqrt and division
+        denominator_sh = wp_vec3_sqrt(v_sh_corrected) + wp.vec3(epsilon, epsilon, epsilon)
+        params.shs[idx] = params.shs[idx] - lr * wp_vec3_div_element(m_sh_corrected, denominator_sh)

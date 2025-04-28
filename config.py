@@ -21,3 +21,4 @@ TILE_THREADS = 256
 
 
 VEC6 = wp.types.vector(length=6, dtype=WP_FLOAT32)
+

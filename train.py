@@ -12,20 +12,13 @@ import math
 
 # Import the renderer and constants
 from forward import render_gaussians
-from config import DEVICE, TILE_M, TILE_N, VEC6
-from utils import world_to_view, projection_matrix, load_ply
+from backward import compute_image_loss, backprop_pixel_gradients, densify_gaussians, prune_gaussians
+from config import *
+from utils import *
+from structures import GaussianParams
 
 # Initialize Warp
 wp.init()
-
-# Define structures for Gaussian parameters
-@wp.struct
-class GaussianParams:
-    positions: wp.array(dtype=wp.vec3)
-    scales: wp.array(dtype=wp.vec3)
-    rotations: wp.array(dtype=wp.mat33)
-    opacities: wp.array(dtype=float)
-    shs: wp.array(dtype=wp.vec3)  # Flattened SH coefficients
 
 
 # Kernels for parameter updates
@@ -100,193 +93,7 @@ def zero_gradients(
         idx = i * 16 + j
         sh_grad[idx] = wp.vec3(0.0, 0.0, 0.0)
 
-# Reinstate the element-wise vector multiplication helper function
-@wp.func
-def wp_vec3_mul_element(a: wp.vec3, b: wp.vec3) -> wp.vec3:
-    return wp.vec3(a[0] * b[0], a[1] * b[1], a[2] * b[2])
 
-# Reinstate the element-wise vector square root helper function
-@wp.func
-def wp_vec3_sqrt(a: wp.vec3) -> wp.vec3:
-    return wp.vec3(wp.sqrt(a[0]), wp.sqrt(a[1]), wp.sqrt(a[2]))
-
-# Add element-wise vector division helper function
-@wp.func
-def wp_vec3_div_element(a: wp.vec3, b: wp.vec3) -> wp.vec3:
-    # Add small epsilon to denominator to prevent division by zero
-    # (although Adam's epsilon should mostly handle this)
-    safe_b = wp.vec3(b[0] + 1e-9, b[1] + 1e-9, b[2] + 1e-9)
-    return wp.vec3(a[0] / safe_b[0], a[1] / safe_b[1], a[2] / safe_b[2])
-
-@wp.kernel
-def adam_update(
-    params: GaussianParams,
-    grads: GaussianParams,
-    m: GaussianParams,
-    v: GaussianParams,
-    num_points: int,
-    lr: float,
-    beta1: float,
-    beta2: float,
-    epsilon: float,
-    iteration: int
-):
-    i = wp.tid()
-    if i >= num_points:
-        return
-    
-    # Bias correction terms
-    bias_correction1 = 1.0 - wp.pow(beta1, float(iteration + 1))
-    bias_correction2 = 1.0 - wp.pow(beta2, float(iteration + 1))
-    
-    # Update positions
-    m.positions[i] = beta1 * m.positions[i] + (1.0 - beta1) * grads.positions[i]
-    # Use the helper function for element-wise multiplication
-    v.positions[i] = beta2 * v.positions[i] + (1.0 - beta2) * wp_vec3_mul_element(grads.positions[i], grads.positions[i])
-    # Use distinct names for corrected moments per parameter type
-    m_pos_corrected = m.positions[i] / bias_correction1
-    v_pos_corrected = v.positions[i] / bias_correction2
-    # Use the helper function for element-wise sqrt and division
-    denominator_pos = wp_vec3_sqrt(v_pos_corrected) + wp.vec3(epsilon, epsilon, epsilon)
-    params.positions[i] = params.positions[i] - lr * wp_vec3_div_element(m_pos_corrected, denominator_pos)
-    
-    # Update scales (with some constraints to keep them positive)
-    m.scales[i] = beta1 * m.scales[i] + (1.0 - beta1) * grads.scales[i]
-    # Use the helper function for element-wise multiplication
-    v.scales[i] = beta2 * v.scales[i] + (1.0 - beta2) * wp_vec3_mul_element(grads.scales[i], grads.scales[i])
-    # Use distinct names for corrected moments per parameter type
-    m_scale_corrected = m.scales[i] / bias_correction1
-    v_scale_corrected = v.scales[i] / bias_correction2
-    # Use the helper function for element-wise sqrt and division
-    denominator_scale = wp_vec3_sqrt(v_scale_corrected) + wp.vec3(epsilon, epsilon, epsilon)
-    scale_update = lr * wp_vec3_div_element(m_scale_corrected, denominator_scale)
-    params.scales[i] = wp.vec3(
-        wp.max(params.scales[i][0] - scale_update[0], 0.001),
-        wp.max(params.scales[i][1] - scale_update[1], 0.001),
-        wp.max(params.scales[i][2] - scale_update[2], 0.001)
-    )
-    
-    # Update opacity (with clamping to [0,1])
-    m.opacities[i] = beta1 * m.opacities[i] + (1.0 - beta1) * grads.opacities[i]
-    # Opacity is scalar, direct multiplication is fine
-    v.opacities[i] = beta2 * v.opacities[i] + (1.0 - beta2) * (grads.opacities[i] * grads.opacities[i])
-    # Use distinct names for corrected moments per parameter type
-    m_opacity_corrected = m.opacities[i] / bias_correction1
-    v_opacity_corrected = v.opacities[i] / bias_correction2
-    # Opacity is scalar, direct wp.sqrt is fine here
-    opacity_update = lr * m_opacity_corrected / (wp.sqrt(v_opacity_corrected) + epsilon)
-    params.opacities[i] = wp.max(wp.min(params.opacities[i] - opacity_update, 1.0), 0.0)
-    
-    # Update SH coefficients
-    for j in range(16):
-        idx = i * 16 + j
-        m.shs[idx] = beta1 * m.shs[idx] + (1.0 - beta1) * grads.shs[idx]
-        # Use the helper function for element-wise multiplication
-        v.shs[idx] = beta2 * v.shs[idx] + (1.0 - beta2) * wp_vec3_mul_element(grads.shs[idx], grads.shs[idx])
-        # Use distinct names for corrected moments per parameter type
-        m_sh_corrected = m.shs[idx] / bias_correction1
-        v_sh_corrected = v.shs[idx] / bias_correction2
-        # Use the helper function for element-wise sqrt and division
-        denominator_sh = wp_vec3_sqrt(v_sh_corrected) + wp.vec3(epsilon, epsilon, epsilon)
-        params.shs[idx] = params.shs[idx] - lr * wp_vec3_div_element(m_sh_corrected, denominator_sh)
-
-@wp.kernel
-def compute_image_loss(
-    rendered: wp.array2d(dtype=wp.vec3),
-    target: wp.array2d(dtype=wp.vec3),
-    loss_buffer: wp.array(dtype=float),
-    width: int,
-    height: int
-):
-    i, j = wp.tid()
-    if i >= width or j >= height:
-        return
-    
-    # Compute squared difference for each pixel component
-    rendered_pixel = rendered[i, j]
-    target_pixel = target[i, j]
-    diff = rendered_pixel - target_pixel
-    squared_diff = diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2]
-    
-    # Atomic add to loss buffer
-    wp.atomic_add(loss_buffer, 0, squared_diff)
-
-@wp.kernel
-def backprop_pixel_gradients(
-    rendered: wp.array2d(dtype=wp.vec3),
-    target: wp.array2d(dtype=wp.vec3),
-    pixel_grad: wp.array2d(dtype=wp.vec3),
-    width: int,
-    height: int
-):
-    i, j = wp.tid()
-    if i >= width or j >= height:
-        return
-    
-    # Compute gradient (2 * diff for MSE loss)
-    rendered_pixel = rendered[i, j]
-    target_pixel = target[i, j]
-    diff = rendered_pixel - target_pixel
-    
-    # 2 * diff for mean squared error gradient
-    pixel_grad[i, j] = wp.vec3(
-        2.0 * diff[0], 
-        2.0 * diff[1], 
-        2.0 * diff[2]
-    )
-
-@wp.kernel
-def densify_gaussians(
-    positions: wp.array(dtype=wp.vec3),
-    scales: wp.array(dtype=wp.vec3),
-    rotations: wp.array(dtype=wp.mat33),
-    opacities: wp.array(dtype=float),
-    shs: wp.array(dtype=wp.vec3),
-    pos_grads: wp.array(dtype=wp.vec3),
-    scale_grads: wp.array(dtype=wp.vec3),
-    num_points: int,
-    noise_scale: float
-):
-    i = wp.tid()
-    if i >= num_points:
-        return
-    
-    # Get gradient magnitudes to identify high-gradient Gaussians
-    pos_grad_mag = wp.length(pos_grads[i])
-    scale_grad_mag = wp.length(scale_grads[i])
-    
-    # We just add noise to positions based on gradients
-    # In a full implementation, you'd clone Gaussians with high gradient magnitude
-    if pos_grad_mag > 0.1 or scale_grad_mag > 0.1:
-        # Add random noise to position
-        seed = wp.uint32(i)
-        noise = wp.vec3(
-            wp.randn(seed) * noise_scale,
-            wp.randn(seed + wp.uint32(1000)) * noise_scale,
-            wp.randn(seed + wp.uint32(2000)) * noise_scale
-        )
-        positions[i] = positions[i] + noise
-
-@wp.kernel
-def prune_gaussians(
-    positions: wp.array(dtype=wp.vec3),
-    scales: wp.array(dtype=wp.vec3),
-    rotations: wp.array(dtype=wp.mat33),
-    opacities: wp.array(dtype=float),
-    shs: wp.array(dtype=wp.vec3),
-    opacity_threshold: float,
-    valid_mask: wp.array(dtype=int),
-    num_points: int
-):
-    i = wp.tid()
-    if i >= num_points:
-        return
-    
-    # Mark Gaussians for keeping or removal
-    if opacities[i] > opacity_threshold:
-        valid_mask[i] = 1
-    else:
-        valid_mask[i] = 0
 
 # Function to compute MSE loss
 def compute_loss(rendered_img, target_img):
@@ -891,14 +698,14 @@ class NeRFGaussianSplattingTrainer:
                     'n_contrib': n_contrib
                 }
                 
-                # Compute the gradients
+                # Compute the gradients using individual parameters instead of GaussianParams
                 gradients = backward(
                     # Core parameters
                     background=np.array(self.config['background_color'], dtype=np.float32),
                     means3D=self.params.positions,
                     dL_dpixels=pixel_grad_buffer,
                     
-                    # Model parameters
+                    # Model parameters (pass directly from self.params)
                     opacity=self.params.opacities,
                     shs=self.params.shs,
                     scales=self.params.scales,
