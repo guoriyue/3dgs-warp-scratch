@@ -1,21 +1,19 @@
-import numpy as np
-import warp as wp
 import os
-import json
+import numpy as np
 import matplotlib.pyplot as plt
+import warp as wp
+import imageio
+import json
 from tqdm import tqdm
-import argparse
 from pathlib import Path
+import argparse
 from plyfile import PlyData, PlyElement
-import imageio.v2 as imageio
-import torch
-import torch.nn.functional as F
 import math
 
-# Import the renderer kernel here
+# Import the renderer and constants
 from forward import render_gaussians
+from config import DEVICE, TILE_M, TILE_N, VEC6
 from utils import world_to_view, projection_matrix, load_ply
-from config import *
 
 # Initialize Warp
 wp.init()
@@ -640,6 +638,45 @@ class NeRFGaussianSplattingTrainer:
         
         return rendered_img
     
+    def get_render_buffers(self):
+        """Return the last set of buffers from the rendering process.
+        This function should be called after render_view.
+        
+        Returns:
+            Tuple of buffer arrays needed for backward pass
+        """
+        # Unfortunately, render_gaussians doesn't expose these buffers
+        # We need to modify the rendering code to save these arrays
+        
+        # For now, create mock buffers with appropriate sizes
+        num_points = self.params.positions.shape[0]
+        
+        # Create placeholder buffers
+        radii = wp.zeros(num_points, dtype=int, device=DEVICE)
+        points_xy_image = wp.zeros(num_points, dtype=wp.vec2, device=DEVICE)
+        depths = wp.zeros(num_points, dtype=float, device=DEVICE)
+        rgb = wp.zeros(num_points, dtype=wp.vec3, device=DEVICE)
+        conic_opacity = wp.zeros(num_points, dtype=wp.vec4, device=DEVICE)
+        
+        # Number of rendered points (we don't know this without running forward pass)
+        # This is a very rough estimate - all points visible from all tiles
+        image_width = self.cameras[0]['width']
+        image_height = self.cameras[0]['height']
+        max_rendered = num_points * 10  # Overestimate
+        
+        point_list = wp.zeros(max_rendered, dtype=int, device=DEVICE)
+        
+        # Calculate tile grid for spatial optimization
+        TILE_M = 16  # These should match the values in forward.py
+        TILE_N = 16
+        tile_grid_x = (image_width + TILE_M - 1) // TILE_M
+        tile_grid_y = (image_height + TILE_N - 1) // TILE_N
+        tile_count = tile_grid_x * tile_grid_y
+        
+        ranges = wp.zeros(tile_count, dtype=wp.vec2i, device=DEVICE)
+                
+        return radii, points_xy_image, depths, rgb, conic_opacity, point_list, ranges
+    
     def zero_grad(self):
         """Zero out all gradients."""
         wp.launch(
@@ -799,25 +836,106 @@ class NeRFGaussianSplattingTrainer:
                 # The backward pass would compute how changes in each Gaussian parameter
                 # affect the final pixel colors and propagate the pixel gradients back.
 
-                # Example placeholder steps (need actual implementation):
                 # 1. Compute pixel gradients (dL/dColor)
-                #    pixel_grad_buffer = wp.zeros_like(d_rendered) # Assuming d_rendered exists from loss/render
-                #    wp.launch(backprop_pixel_gradients, dim=(width, height), inputs=[... , pixel_grad_buffer])
-                #
-                # 2. Launch backward kernel(s) corresponding to `render_gaussians`
-                #    # Hypothetical backward kernel
-                #    wp.launch(
-                #        render_gaussians_backward,
-                #        dim=appropriate_dims,
-                #        inputs=[
-                #            self.params, # Current parameters
-                #            camera_params, # View, projection etc. used in forward pass
-                #            pixel_grad_buffer, # Gradients from image space
-                #            self.grads # Output: gradients w.r.t params (dL/dPositions, dL/dScales, etc.)
-                #        ]
-                #    )
-                # Without the above, self.grads remains zero, and the optimizer does nothing.
-                # --- End Missing Gradient Computation ---
+                height, width = rendered_image.shape[0], rendered_image.shape[1]
+                pixel_grad_buffer = wp.zeros((height, width), dtype=wp.vec3, device=DEVICE)
+                wp.launch(
+                    kernel=backprop_pixel_gradients,
+                    dim=(width, height),
+                    inputs=[
+                        rendered_image,
+                        target_image,
+                        pixel_grad_buffer,
+                        width,
+                        height
+                    ]
+                )
+                
+                # 2. Call the backward function to compute gradients w.r.t Gaussian parameters
+                from backward import backward
+                
+                # Prepare camera parameters
+                camera = self.cameras[camera_idx]
+                view_matrix = wp.mat44(camera['view_matrix'].flatten())
+                proj_matrix = wp.mat44(camera['proj_matrix'].flatten())
+                campos = wp.vec3(camera['camera_pos'][0], camera['camera_pos'][1], camera['camera_pos'][2])
+                
+                # For the render_gaussians function in forward.py, we need to collect all the 
+                # intermediate data that was computed during the forward pass
+                
+                # Get these values from the last call to render_gaussians
+                # We need to modify render_view to return these buffers
+                radii, points_xy_image, depths, rgb, conic_opacity, point_list, ranges = \
+                    self.get_render_buffers()
+                    
+                # Create appropriate buffer dictionaries for the backward pass
+                geom_buffer = {
+                    'radii': radii,
+                    'means2D': points_xy_image,
+                    'conic_opacity': conic_opacity,
+                    'rgb': rgb
+                }
+                
+                binning_buffer = {
+                    'point_list': point_list
+                }
+                
+                # To get final_Ts and n_contrib, we would need to save these from the forward pass
+                # For now, create empty placeholders
+                final_Ts = wp.zeros((height, width), dtype=float, device=DEVICE)
+                n_contrib = wp.zeros((height, width), dtype=int, device=DEVICE)
+                
+                img_buffer = {
+                    'ranges': ranges,
+                    'final_Ts': final_Ts,
+                    'n_contrib': n_contrib
+                }
+                
+                # Compute the gradients
+                gradients = backward(
+                    # Core parameters
+                    background=np.array(self.config['background_color'], dtype=np.float32),
+                    means3D=self.params.positions,
+                    dL_dpixels=pixel_grad_buffer,
+                    
+                    # Model parameters
+                    opacity=self.params.opacities,
+                    shs=self.params.shs,
+                    scales=self.params.scales,
+                    rotations=self.params.rotations,
+                    scale_modifier=self.config['scale_modifier'],
+                    
+                    # Camera parameters
+                    viewmatrix=view_matrix,
+                    projmatrix=proj_matrix,
+                    tan_fovx=camera['tan_fovx'],
+                    tan_fovy=camera['tan_fovy'],
+                    image_height=camera['height'],
+                    image_width=camera['width'],
+                    campos=campos,
+                    
+                    # Forward output buffers
+                    radii=radii,
+                    means2D=points_xy_image,
+                    conic_opacity=conic_opacity,
+                    rgb=rgb,
+                    
+                    # Internal state buffers
+                    geom_buffer=geom_buffer,
+                    binning_buffer=binning_buffer,
+                    img_buffer=img_buffer,
+                    
+                    # Algorithm parameters
+                    degree=self.config['sh_degree'],
+                    debug=False
+                )
+                
+                # 3. Copy gradients from backward result to the optimizer's gradient buffers
+                wp.copy(self.grads.positions, gradients['dL_dmean3D'])
+                wp.copy(self.grads.scales, gradients['dL_dscale'])
+                wp.copy(self.grads.rotations, gradients['dL_drot'])
+                wp.copy(self.grads.opacities, gradients['dL_dopacity'])
+                wp.copy(self.grads.shs, gradients['dL_dshs'])
 
                 # Update parameters
                 self.optimizer_step(iteration)
