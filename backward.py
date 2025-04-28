@@ -985,7 +985,7 @@ def backward(
         opacity: Opacity values (N, 1) or (N,)
         shs: Spherical harmonics coefficients (N, D, 3) or flattened (N*D, 3)
         scales: Scale parameters (N, 3)
-        rotations: Rotation matrices (N, 3, 3) or quaternions (N, 4)
+        rotations: Rotation quaternions (N, 4)
         scale_modifier: Global scale modifier (float)
         viewmatrix: View matrix (4, 4)
         projmatrix: Projection matrix (4, 4)

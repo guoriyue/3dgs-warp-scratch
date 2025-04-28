@@ -6,7 +6,7 @@ import argparse
 import os
 import json
 from forward import render_gaussians
-from utils import world_to_view, projection_matrix, load_ply
+from utils import world_to_view, projection_matrix, load_ply, matrix_to_quaternion
 from config import *
 
 # Initialize Warp
@@ -67,7 +67,8 @@ def example_gaussians(image_width=700, image_height=700, fovx=45.0, fovy=45.0, z
     
     opacities = np.ones((n, 1), dtype=np.float32)
     scales = np.ones((n, 3), dtype=np.float32)
-    rotations = np.array([np.eye(3)] * n, dtype=np.float32)
+    rotations = np.zeros((n, 4), dtype=np.float32)
+    rotations[:, 3] = 1.0  # Set w component to 1.0 for identity quaternions
     colors = np.ones((n, 3), dtype=np.float32)
     
     # Reuse the camera setup function

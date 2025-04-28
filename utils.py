@@ -37,6 +37,50 @@ def projection_matrix(fovx, fovy, znear, zfar):
     P[2, 3] = -(zfar * znear) / (zfar - znear)
     return P
 
+def matrix_to_quaternion(matrix):
+    """
+    Convert a 3x3 rotation matrix to a quaternion in (x, y, z, w) format.
+    
+    Args:
+        matrix: 3x3 rotation matrix
+        
+    Returns:
+        Quaternion as (x, y, z, w) in numpy array of shape (4,)
+    """
+    # Ensure the input is a proper rotation matrix
+    # This is just a simple check that might be helpful during debug
+    if np.abs(np.linalg.det(matrix) - 1.0) > 1e-5:
+        print(f"Warning: Input matrix determinant is not 1: {np.linalg.det(matrix)}")
+    
+    trace = np.trace(matrix)
+    if trace > 0:
+        S = 2.0 * np.sqrt(trace + 1.0)
+        w = 0.25 * S
+        x = (matrix[2, 1] - matrix[1, 2]) / S
+        y = (matrix[0, 2] - matrix[2, 0]) / S
+        z = (matrix[1, 0] - matrix[0, 1]) / S
+    elif matrix[0, 0] > matrix[1, 1] and matrix[0, 0] > matrix[2, 2]:
+        S = 2.0 * np.sqrt(1.0 + matrix[0, 0] - matrix[1, 1] - matrix[2, 2])
+        w = (matrix[2, 1] - matrix[1, 2]) / S
+        x = 0.25 * S
+        y = (matrix[0, 1] + matrix[1, 0]) / S
+        z = (matrix[0, 2] + matrix[2, 0]) / S
+    elif matrix[1, 1] > matrix[2, 2]:
+        S = 2.0 * np.sqrt(1.0 + matrix[1, 1] - matrix[0, 0] - matrix[2, 2])
+        w = (matrix[0, 2] - matrix[2, 0]) / S
+        x = (matrix[0, 1] + matrix[1, 0]) / S
+        y = 0.25 * S
+        z = (matrix[1, 2] + matrix[2, 1]) / S
+    else:
+        S = 2.0 * np.sqrt(1.0 + matrix[2, 2] - matrix[0, 0] - matrix[1, 1])
+        w = (matrix[1, 0] - matrix[0, 1]) / S
+        x = (matrix[0, 2] + matrix[2, 0]) / S
+        y = (matrix[1, 2] + matrix[2, 1]) / S
+        z = 0.25 * S
+    
+    # Return as (x, y, z, w) to match Warp's convention
+    return np.array([x, y, z, w], dtype=np.float32)
+
 def load_ply(filename):
     """
     Load a PLY file containing 3D Gaussian point cloud data.
@@ -46,6 +90,7 @@ def load_ply(filename):
         
     Returns:
         Tuple of (points, scales, rotations, opacities, colors, shs)
+        where rotations are either 3x3 matrices or quaternions (x, y, z, w) based on use_quaternions
     """
     plydata = PlyData.read(filename)
     verts = plydata['vertex'].data
@@ -82,9 +127,15 @@ def load_ply(filename):
     if all(f"rot_{i}" in verts.dtype.names for i in range(9)):
         rot_matrix_elements = np.stack([verts[f"rot_{i}"] for i in range(9)], axis=-1).astype(np.float32)
         rotations = rot_matrix_elements.reshape(-1, 3, 3)
+        
+        # Convert rotation matrices to quaternions
+        rotations_quat = np.zeros((points.shape[0], 4), dtype=np.float32)
+        for i in range(points.shape[0]):
+            rotations_quat[i] = matrix_to_quaternion(rotations[i])
+        rotations = rotations_quat
     else:
-        rotations = np.array([np.eye(3)] * points.shape[0], dtype=np.float32)
-    
+        rotations = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+        
     return points, scales, rotations, opacities, colors, shs
 
 def get_camera_view_proj(R, t, fovx, fovy, znear=0.01, zfar=100.0):

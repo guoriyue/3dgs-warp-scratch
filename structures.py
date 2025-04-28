@@ -5,6 +5,6 @@ import warp as wp
 class GaussianParams:
     positions: wp.array(dtype=wp.vec3)
     scales: wp.array(dtype=wp.vec3)
-    rotations: wp.array(dtype=wp.mat33)
+    rotations: wp.array(dtype=wp.vec4)
     opacities: wp.array(dtype=float)
     shs: wp.array(dtype=wp.vec3)  # Flattened SH coefficients

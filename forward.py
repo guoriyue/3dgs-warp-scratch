@@ -150,15 +150,15 @@ def compute_cov2d(p_orig: wp.vec3, cov3d: VEC6, view_matrix: wp.mat44,
     return wp.vec3(cov[0, 0], cov[0, 1], cov[1, 1])
 
 @wp.func
-def compute_cov3d(scale: wp.vec3, scale_mod: float, rot: wp.mat33) -> VEC6:
+def compute_cov3d(scale: wp.vec3, scale_mod: float, rot: wp.vec4) -> VEC6:
     # Create scaling matrix with modifier applied
     S = wp.mat33(
         scale_mod * scale[0], 0.0, 0.0,
         0.0, scale_mod * scale[1], 0.0,
         0.0, 0.0, scale_mod * scale[2]
     )
-    
-    M = rot * S
+    R = wp.quat_to_matrix(wp.quaternion(rot[0], rot[1], rot[2], rot[3]))
+    M = R * S
     
     # Compute 3D covariance matrix: Sigma = M * M^T
     sigma = M * wp.transpose(M)
@@ -178,7 +178,7 @@ def wp_preprocess(
     orig_points: wp.array(dtype=wp.vec3),
     scales: wp.array(dtype=wp.vec3),
     scale_modifier: float,
-    rotations: wp.array(dtype=wp.mat33),
+    rotations: wp.array(dtype=wp.vec4),
     
     opacities: wp.array(dtype=float),
     shs: wp.array(dtype=wp.vec3),
@@ -525,7 +525,7 @@ def render_gaussians(
         colors: Optional RGB colors tensor of shape (N, 3)
         opacity: Opacity values tensor of shape (N, 1) or (N,)
         scales: Scales tensor of shape (N, 3)
-        rotations: Rotation matrices tensor of shape (N, 3, 3)
+        rotations: Rotation quaternions of shape (N, 4)
         scale_modifier: Global scale modifier (float)
         viewmatrix: View matrix tensor of shape (4, 4)
         projmatrix: Projection matrix tensor of shape (4, 4)
@@ -574,7 +574,7 @@ def render_gaussians(
     # Handle other parameters
     opacities_warp = to_warp_array(opacity, float, flatten=True)
     scales_warp = to_warp_array(scales, wp.vec3)
-    rotations_warp = to_warp_array(rotations, wp.mat33)
+    rotations_warp = to_warp_array(rotations, wp.vec4)
 
     # Handle camera parameters
     view_matrix_warp = wp.mat44(viewmatrix.flatten()) if not isinstance(viewmatrix, wp.mat44) else viewmatrix
@@ -610,7 +610,7 @@ def render_gaussians(
             points_warp,               # orig_points
             scales_warp,               # scales
             scale_modifier,            # scale_modifier
-            rotations_warp,            # rotations
+            rotations_warp,       # rotations_quat
             opacities_warp,            # opacities
             shs_warp,                  # shs
             degree,
