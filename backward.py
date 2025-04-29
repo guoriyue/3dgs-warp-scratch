@@ -5,7 +5,6 @@ import warp as wp
 import math
 from config import * # Assuming TILE_M, TILE_N, VEC6, DEVICE are defined here
 from utils import *
-from structures import GaussianParams
 # Initialize Warp if not already done elsewhere
 # wp.init()
 
@@ -1278,10 +1277,34 @@ def prune_gaussians(
 
 @wp.kernel
 def adam_update(
-    params: GaussianParams,
-    grads: GaussianParams,
-    m: GaussianParams,
-    v: GaussianParams,
+    # Parameters
+    positions: wp.array(dtype=wp.vec3),
+    scales: wp.array(dtype=wp.vec3),
+    rotations: wp.array(dtype=wp.vec4),
+    opacities: wp.array(dtype=float),
+    shs: wp.array(dtype=wp.vec3),
+    
+    # Gradients
+    pos_grads: wp.array(dtype=wp.vec3),
+    scale_grads: wp.array(dtype=wp.vec3),
+    rot_grads: wp.array(dtype=wp.vec4),
+    opacity_grads: wp.array(dtype=float),
+    sh_grads: wp.array(dtype=wp.vec3),
+    
+    # First moments (m)
+    m_positions: wp.array(dtype=wp.vec3),
+    m_scales: wp.array(dtype=wp.vec3),
+    m_rotations: wp.array(dtype=wp.vec4),
+    m_opacities: wp.array(dtype=float),
+    m_shs: wp.array(dtype=wp.vec3),
+    
+    # Second moments (v)
+    v_positions: wp.array(dtype=wp.vec3),
+    v_scales: wp.array(dtype=wp.vec3),
+    v_rotations: wp.array(dtype=wp.vec4),
+    v_opacities: wp.array(dtype=float),
+    v_shs: wp.array(dtype=wp.vec3),
+    
     num_points: int,
     lr: float,
     beta1: float,
@@ -1298,52 +1321,92 @@ def adam_update(
     bias_correction2 = 1.0 - wp.pow(beta2, float(iteration + 1))
     
     # Update positions
-    m.positions[i] = beta1 * m.positions[i] + (1.0 - beta1) * grads.positions[i]
+    m_positions[i] = beta1 * m_positions[i] + (1.0 - beta1) * pos_grads[i]
     # Use the helper function for element-wise multiplication
-    v.positions[i] = beta2 * v.positions[i] + (1.0 - beta2) * wp_vec3_mul_element(grads.positions[i], grads.positions[i])
+    v_positions[i] = beta2 * v_positions[i] + (1.0 - beta2) * wp_vec3_mul_element(pos_grads[i], pos_grads[i])
     # Use distinct names for corrected moments per parameter type
-    m_pos_corrected = m.positions[i] / bias_correction1
-    v_pos_corrected = v.positions[i] / bias_correction2
+    m_pos_corrected = m_positions[i] / bias_correction1
+    v_pos_corrected = v_positions[i] / bias_correction2
     # Use the helper function for element-wise sqrt and division
     denominator_pos = wp_vec3_sqrt(v_pos_corrected) + wp.vec3(epsilon, epsilon, epsilon)
-    params.positions[i] = params.positions[i] - lr * wp_vec3_div_element(m_pos_corrected, denominator_pos)
+    positions[i] = positions[i] - lr * wp_vec3_div_element(m_pos_corrected, denominator_pos)
     
     # Update scales (with some constraints to keep them positive)
-    m.scales[i] = beta1 * m.scales[i] + (1.0 - beta1) * grads.scales[i]
+    m_scales[i] = beta1 * m_scales[i] + (1.0 - beta1) * scale_grads[i]
     # Use the helper function for element-wise multiplication
-    v.scales[i] = beta2 * v.scales[i] + (1.0 - beta2) * wp_vec3_mul_element(grads.scales[i], grads.scales[i])
+    v_scales[i] = beta2 * v_scales[i] + (1.0 - beta2) * wp_vec3_mul_element(scale_grads[i], scale_grads[i])
     # Use distinct names for corrected moments per parameter type
-    m_scale_corrected = m.scales[i] / bias_correction1
-    v_scale_corrected = v.scales[i] / bias_correction2
+    m_scale_corrected = m_scales[i] / bias_correction1
+    v_scale_corrected = v_scales[i] / bias_correction2
     # Use the helper function for element-wise sqrt and division
     denominator_scale = wp_vec3_sqrt(v_scale_corrected) + wp.vec3(epsilon, epsilon, epsilon)
     scale_update = lr * wp_vec3_div_element(m_scale_corrected, denominator_scale)
-    params.scales[i] = wp.vec3(
-        wp.max(params.scales[i][0] - scale_update[0], 0.001),
-        wp.max(params.scales[i][1] - scale_update[1], 0.001),
-        wp.max(params.scales[i][2] - scale_update[2], 0.001)
+    scales[i] = wp.vec3(
+        wp.max(scales[i][0] - scale_update[0], 0.001),
+        wp.max(scales[i][1] - scale_update[1], 0.001),
+        wp.max(scales[i][2] - scale_update[2], 0.001)
     )
     
+    # Update rotations
+    m_rotations[i] = beta1 * m_rotations[i] + (1.0 - beta1) * rot_grads[i]
+    # Element-wise multiplication for quaternions
+    v_rotations[i] = beta2 * v_rotations[i] + (1.0 - beta2) * wp.vec4(
+        rot_grads[i][0] * rot_grads[i][0],
+        rot_grads[i][1] * rot_grads[i][1],
+        rot_grads[i][2] * rot_grads[i][2],
+        rot_grads[i][3] * rot_grads[i][3]
+    )
+    m_rot_corrected = m_rotations[i] / bias_correction1
+    v_rot_corrected = v_rotations[i] / bias_correction2
+    # Element-wise sqrt and division for quaternions
+    denominator_rot = wp.vec4(
+        wp.sqrt(v_rot_corrected[0]) + epsilon,
+        wp.sqrt(v_rot_corrected[1]) + epsilon,
+        wp.sqrt(v_rot_corrected[2]) + epsilon,
+        wp.sqrt(v_rot_corrected[3]) + epsilon
+    )
+    rot_update = wp.vec4(
+        lr * m_rot_corrected[0] / denominator_rot[0],
+        lr * m_rot_corrected[1] / denominator_rot[1],
+        lr * m_rot_corrected[2] / denominator_rot[2],
+        lr * m_rot_corrected[3] / denominator_rot[3]
+    )
+    rotations[i] = rotations[i] - rot_update
+    
+    # Normalize quaternion to ensure it's a valid rotation
+    quat_length = wp.sqrt(rotations[i][0]*rotations[i][0] + 
+                         rotations[i][1]*rotations[i][1] + 
+                         rotations[i][2]*rotations[i][2] + 
+                         rotations[i][3]*rotations[i][3])
+    
+    if quat_length > 0.0:
+        rotations[i] = wp.vec4(
+            rotations[i][0] / quat_length,
+            rotations[i][1] / quat_length,
+            rotations[i][2] / quat_length,
+            rotations[i][3] / quat_length
+        )
+    
     # Update opacity (with clamping to [0,1])
-    m.opacities[i] = beta1 * m.opacities[i] + (1.0 - beta1) * grads.opacities[i]
+    m_opacities[i] = beta1 * m_opacities[i] + (1.0 - beta1) * opacity_grads[i]
     # Opacity is scalar, direct multiplication is fine
-    v.opacities[i] = beta2 * v.opacities[i] + (1.0 - beta2) * (grads.opacities[i] * grads.opacities[i])
+    v_opacities[i] = beta2 * v_opacities[i] + (1.0 - beta2) * (opacity_grads[i] * opacity_grads[i])
     # Use distinct names for corrected moments per parameter type
-    m_opacity_corrected = m.opacities[i] / bias_correction1
-    v_opacity_corrected = v.opacities[i] / bias_correction2
+    m_opacity_corrected = m_opacities[i] / bias_correction1
+    v_opacity_corrected = v_opacities[i] / bias_correction2
     # Opacity is scalar, direct wp.sqrt is fine here
     opacity_update = lr * m_opacity_corrected / (wp.sqrt(v_opacity_corrected) + epsilon)
-    params.opacities[i] = wp.max(wp.min(params.opacities[i] - opacity_update, 1.0), 0.0)
+    opacities[i] = wp.max(wp.min(opacities[i] - opacity_update, 1.0), 0.0)
     
     # Update SH coefficients
     for j in range(16):
         idx = i * 16 + j
-        m.shs[idx] = beta1 * m.shs[idx] + (1.0 - beta1) * grads.shs[idx]
+        m_shs[idx] = beta1 * m_shs[idx] + (1.0 - beta1) * sh_grads[idx]
         # Use the helper function for element-wise multiplication
-        v.shs[idx] = beta2 * v.shs[idx] + (1.0 - beta2) * wp_vec3_mul_element(grads.shs[idx], grads.shs[idx])
+        v_shs[idx] = beta2 * v_shs[idx] + (1.0 - beta2) * wp_vec3_mul_element(sh_grads[idx], sh_grads[idx])
         # Use distinct names for corrected moments per parameter type
-        m_sh_corrected = m.shs[idx] / bias_correction1
-        v_sh_corrected = v.shs[idx] / bias_correction2
+        m_sh_corrected = m_shs[idx] / bias_correction1
+        v_sh_corrected = v_shs[idx] / bias_correction2
         # Use the helper function for element-wise sqrt and division
         denominator_sh = wp_vec3_sqrt(v_sh_corrected) + wp.vec3(epsilon, epsilon, epsilon)
-        params.shs[idx] = params.shs[idx] - lr * wp_vec3_div_element(m_sh_corrected, denominator_sh)
+        shs[idx] = shs[idx] - lr * wp_vec3_div_element(m_sh_corrected, denominator_sh)

@@ -15,8 +15,6 @@ from forward import render_gaussians
 from backward import backward, compute_image_loss, backprop_pixel_gradients, densify_gaussians, prune_gaussians, adam_update
 from config import *
 from utils import *
-from structures import GaussianParams
-
 # Initialize Warp
 wp.init()
 
@@ -127,11 +125,11 @@ def compact_point_cloud(params, valid_mask):
     new_shs = wp.zeros(num_valid * 16, dtype=wp.vec3)
     
     # Copy valid points
-    positions_np = params.positions.numpy()
-    scales_np = params.scales.numpy()
-    rotations_np = params.rotations.numpy()
-    opacities_np = params.opacities.numpy()
-    shs_np = params.shs.numpy()
+    positions_np = params['positions'].numpy()
+    scales_np = params['scales'].numpy()
+    rotations_np = params['rotations'].numpy()
+    opacities_np = params['opacities'].numpy()
+    shs_np = params['shs'].numpy()
     
     for i, idx in enumerate(indices):
         new_positions.numpy()[i] = positions_np[idx]
@@ -144,23 +142,24 @@ def compact_point_cloud(params, valid_mask):
             new_shs.numpy()[i * 16 + j] = shs_np[idx * 16 + j]
     
     # Create new parameters
-    new_params = GaussianParams()
-    new_params.positions = new_positions
-    new_params.scales = new_scales
-    new_params.rotations = new_rotations
-    new_params.opacities = new_opacities
-    new_params.shs = new_shs
+    new_params = {
+        'positions': new_positions,
+        'scales': new_scales,
+        'rotations': new_rotations,
+        'opacities': new_opacities,
+        'shs': new_shs
+    }
     
     return new_params, num_valid
 
 # Function to save point cloud to PLY file
 def save_ply(params, filepath, num_points):
     # Get numpy arrays
-    positions = params.positions.numpy()
-    scales = params.scales.numpy()
-    rotations = params.rotations.numpy()
-    opacities = params.opacities.numpy()
-    shs = params.shs.numpy()
+    positions = params['positions'].numpy()
+    scales = params['scales'].numpy()
+    rotations = params['rotations'].numpy()
+    opacities = params['opacities'].numpy()
+    shs = params['shs'].numpy()
     
     # Create vertex data
     vertex_data = []
@@ -286,26 +285,31 @@ class NeRFGaussianSplattingTrainer:
             inputs=[positions, scales, rotations, opacities, shs, self.num_points, self.config['initial_scale']]
         )
         
-        # Create parameter struct
-        params = GaussianParams()
-        params.positions = positions
-        params.scales = scales
-        params.rotations = rotations
-        params.opacities = opacities
-        params.shs = shs
-        
-        return params
+        # Return parameters as dictionary
+        return {
+            'positions': positions,
+            'scales': scales,
+            'rotations': rotations,
+            'opacities': opacities,
+            'shs': shs
+        }
     
     def create_gradient_arrays(self):
         """Create arrays for gradients or optimizer state."""
-        grads = GaussianParams()
-        grads.positions = wp.zeros(self.num_points, dtype=wp.vec3)
-        grads.scales = wp.zeros(self.num_points, dtype=wp.vec3)
-        grads.rotations = wp.zeros(self.num_points, dtype=wp.vec4)
-        grads.opacities = wp.zeros(self.num_points, dtype=float)
-        grads.shs = wp.zeros(self.num_points * 16, dtype=wp.vec3)
+        positions = wp.zeros(self.num_points, dtype=wp.vec3)
+        scales = wp.zeros(self.num_points, dtype=wp.vec3)
+        rotations = wp.zeros(self.num_points, dtype=wp.vec4)
+        opacities = wp.zeros(self.num_points, dtype=float)
+        shs = wp.zeros(self.num_points * 16, dtype=wp.vec3)
         
-        return grads
+        # Return a dictionary of arrays
+        return {
+            'positions': positions,
+            'scales': scales,
+            'rotations': rotations,
+            'opacities': opacities,
+            'shs': shs
+        }
     
     def load_nerf_data(self):
         """Load camera parameters and images from a NeRF dataset."""
@@ -401,11 +405,11 @@ class NeRFGaussianSplattingTrainer:
         camera = self.cameras[camera_idx]
         
         # Get point cloud data as numpy arrays
-        positions_np = self.params.positions.numpy()
-        scales_np = self.params.scales.numpy()
-        rotations_np = self.params.rotations.numpy()
-        opacities_np = self.params.opacities.numpy()
-        shs_np = self.params.shs.numpy()
+        positions_np = self.params['positions'].numpy()
+        scales_np = self.params['scales'].numpy()
+        rotations_np = self.params['rotations'].numpy()
+        opacities_np = self.params['opacities'].numpy()
+        shs_np = self.params['shs'].numpy()
         
         # Render using the warp renderer
         rendered_img, depth_image = render_gaussians(
@@ -443,7 +447,7 @@ class NeRFGaussianSplattingTrainer:
         # We need to modify the rendering code to save these arrays
         
         # For now, create mock buffers with appropriate sizes
-        num_points = self.params.positions.shape[0]
+        num_points = self.params['positions'].shape[0]
         
         # Create placeholder buffers
         radii = wp.zeros(num_points, dtype=int, device=DEVICE)
@@ -477,11 +481,11 @@ class NeRFGaussianSplattingTrainer:
             zero_gradients,
             dim=self.num_points,
             inputs=[
-                self.grads.positions,
-                self.grads.scales,
-                self.grads.rotations,
-                self.grads.opacities,
-                self.grads.shs,
+                self.grads['positions'],
+                self.grads['scales'],
+                self.grads['rotations'],
+                self.grads['opacities'],
+                self.grads['shs'],
                 self.num_points
             ]
         )
@@ -495,9 +499,9 @@ class NeRFGaussianSplattingTrainer:
                 densify_gaussians,
                 dim=self.num_points,
                 inputs=[
-                    self.params.positions,
-                    self.grads.positions,
-                    self.grads.scales,
+                    self.params['positions'],
+                    self.grads['positions'],
+                    self.grads['scales'],
                     self.num_points,
                     0.01  # noise scale
                 ]
@@ -513,7 +517,7 @@ class NeRFGaussianSplattingTrainer:
                 prune_gaussians,
                 dim=self.num_points,
                 inputs=[
-                    self.params.opacities,
+                    self.params['opacities'],
                     0.1,  # opacity threshold
                     valid_mask,
                     self.num_points
@@ -545,10 +549,35 @@ class NeRFGaussianSplattingTrainer:
             adam_update,
             dim=self.num_points,
             inputs=[
-                self.params,
-                self.grads,
-                self.adam_m,
-                self.adam_v,
+                # Parameters
+                self.params['positions'],
+                self.params['scales'],
+                self.params['rotations'],
+                self.params['opacities'],
+                self.params['shs'],
+                
+                # Gradients
+                self.grads['positions'],
+                self.grads['scales'],
+                self.grads['rotations'],
+                self.grads['opacities'],
+                self.grads['shs'],
+                
+                # First moments (m)
+                self.adam_m['positions'],
+                self.adam_m['scales'],
+                self.adam_m['rotations'],
+                self.adam_m['opacities'],
+                self.adam_m['shs'],
+                
+                # Second moments (v)
+                self.adam_v['positions'],
+                self.adam_v['scales'],
+                self.adam_v['rotations'],
+                self.adam_v['opacities'],
+                self.adam_v['shs'],
+                
+                # Optimizer parameters
                 self.num_points,
                 self.config['learning_rate'],
                 self.config['adam_beta1'],
@@ -678,14 +707,14 @@ class NeRFGaussianSplattingTrainer:
                 gradients = backward(
                     # Core parameters
                     background=np.array(self.config['background_color'], dtype=np.float32),
-                    means3D=self.params.positions,
+                    means3D=self.params['positions'],
                     dL_dpixels=pixel_grad_buffer,
                     
                     # Model parameters (pass directly from self.params)
-                    opacity=self.params.opacities,
-                    shs=self.params.shs,
-                    scales=self.params.scales,
-                    rotations=self.params.rotations,
+                    opacity=self.params['opacities'],
+                    shs=self.params['shs'],
+                    scales=self.params['scales'],
+                    rotations=self.params['rotations'],
                     scale_modifier=self.config['scale_modifier'],
                     
                     # Camera parameters
@@ -714,11 +743,11 @@ class NeRFGaussianSplattingTrainer:
                 )
                 
                 # 3. Copy gradients from backward result to the optimizer's gradient buffers
-                wp.copy(self.grads.positions, gradients['dL_dmean3D'])
-                wp.copy(self.grads.scales, gradients['dL_dscale'])
-                wp.copy(self.grads.rotations, gradients['dL_drot'])
-                wp.copy(self.grads.opacities, gradients['dL_dopacity'])
-                wp.copy(self.grads.shs, gradients['dL_dshs'])
+                wp.copy(self.grads['positions'], gradients['dL_dmean3D'])
+                wp.copy(self.grads['scales'], gradients['dL_dscale'])
+                wp.copy(self.grads['rotations'], gradients['dL_drot'])
+                wp.copy(self.grads['opacities'], gradients['dL_dopacity'])
+                wp.copy(self.grads['shs'], gradients['dL_dshs'])
 
                 # Update parameters
                 self.optimizer_step(iteration)
