@@ -1233,10 +1233,6 @@ def backprop_pixel_gradients(
 @wp.kernel
 def densify_gaussians(
     positions: wp.array(dtype=wp.vec3),
-    scales: wp.array(dtype=wp.vec3),
-    rotations: wp.array(dtype=wp.mat33),
-    opacities: wp.array(dtype=float),
-    shs: wp.array(dtype=wp.vec3),
     pos_grads: wp.array(dtype=wp.vec3),
     scale_grads: wp.array(dtype=wp.vec3),
     num_points: int,
@@ -1264,11 +1260,7 @@ def densify_gaussians(
 
 @wp.kernel
 def prune_gaussians(
-    positions: wp.array(dtype=wp.vec3),
-    scales: wp.array(dtype=wp.vec3),
-    rotations: wp.array(dtype=wp.mat33),
     opacities: wp.array(dtype=float),
-    shs: wp.array(dtype=wp.vec3),
     opacity_threshold: float,
     valid_mask: wp.array(dtype=int),
     num_points: int

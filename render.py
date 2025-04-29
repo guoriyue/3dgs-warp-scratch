@@ -67,8 +67,11 @@ def example_gaussians(image_width=700, image_height=700, fovx=45.0, fovy=45.0, z
     
     opacities = np.ones((n, 1), dtype=np.float32)
     scales = np.ones((n, 3), dtype=np.float32)
+    
+    # Create quaternion rotations (identity quaternions)
     rotations = np.zeros((n, 4), dtype=np.float32)
-    rotations[:, 3] = 1.0  # Set w component to 1.0 for identity quaternions
+    rotations[:, 3] = 1.0  # Set w component to 1.0
+    
     colors = np.ones((n, 3), dtype=np.float32)
     
     # Reuse the camera setup function
@@ -191,6 +194,7 @@ if __name__ == "__main__":
             print(f"  - Position range: Min {pts.min(axis=0)}, Max {pts.max(axis=0)}")
             print(f"  - Scale range: Min {scales.min(axis=0)}, Max {scales.max(axis=0)}")
             print(f"  - Opacity range: Min {opacities.min()}, Max {opacities.max()}")
+            print(f"  - Quaternion rotation shape: {rotations.shape}")
             
             if args.debug and n > 0:
                 # Print out a sample point for debugging
@@ -198,7 +202,7 @@ if __name__ == "__main__":
                 print(f"Sample point {idx}:")
                 print(f"  - Position: {pts[idx]}")
                 print(f"  - Scale: {scales[idx]}")
-                print(f"  - Rotation: {rotations[idx]}")
+                print(f"  - Rotation (quaternion x,y,z,w): {rotations[idx]}")
                 print(f"  - Opacity: {opacities[idx]}")
                 if shs is not None:
                     print(f"  - SH (first coefficient): {shs[idx][0]}")

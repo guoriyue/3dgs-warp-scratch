@@ -12,7 +12,7 @@ import math
 
 # Import the renderer and constants
 from forward import render_gaussians
-from backward import compute_image_loss, backprop_pixel_gradients, densify_gaussians, prune_gaussians
+from backward import backward, compute_image_loss, backprop_pixel_gradients, densify_gaussians, prune_gaussians, adam_update
 from config import *
 from utils import *
 from structures import GaussianParams
@@ -26,7 +26,7 @@ wp.init()
 def init_gaussian_params(
     positions: wp.array(dtype=wp.vec3),
     scales: wp.array(dtype=wp.vec3),
-    rotations: wp.array(dtype=wp.mat33),
+    rotations: wp.array(dtype=wp.vec4),
     opacities: wp.array(dtype=float),
     shs: wp.array(dtype=wp.vec3),
     num_points: int,
@@ -49,11 +49,7 @@ def init_gaussian_params(
     scales[i] = wp.vec3(init_scale, init_scale, init_scale)
     
     # Initialize rotations to identity matrix
-    rotations[i] = wp.mat33(
-        1.0, 0.0, 0.0,
-        0.0, 1.0, 0.0,
-        0.0, 0.0, 1.0
-    )
+    rotations[i] = wp.vec4(0.0, 0.0, 0.0, 1.0)
     
     # Initialize opacities
     opacities[i] = 0.5
@@ -70,7 +66,7 @@ def init_gaussian_params(
 def zero_gradients(
     pos_grad: wp.array(dtype=wp.vec3),
     scale_grad: wp.array(dtype=wp.vec3),
-    rot_grad: wp.array(dtype=wp.mat33),
+    rot_grad: wp.array(dtype=wp.vec4),
     opacity_grad: wp.array(dtype=float),
     sh_grad: wp.array(dtype=wp.vec3),
     num_points: int
@@ -81,11 +77,7 @@ def zero_gradients(
     
     pos_grad[i] = wp.vec3(0.0, 0.0, 0.0)
     scale_grad[i] = wp.vec3(0.0, 0.0, 0.0)
-    rot_grad[i] = wp.mat33(
-        0.0, 0.0, 0.0,
-        0.0, 0.0, 0.0,
-        0.0, 0.0, 0.0
-    )
+    rot_grad[i] = wp.vec4(0.0, 0.0, 0.0, 0.0)
     opacity_grad[i] = 0.0
     
     # Zero SH gradients
@@ -130,7 +122,7 @@ def compact_point_cloud(params, valid_mask):
     # Create new arrays
     new_positions = wp.zeros(num_valid, dtype=wp.vec3)
     new_scales = wp.zeros(num_valid, dtype=wp.vec3)
-    new_rotations = wp.zeros(num_valid, dtype=wp.mat33)
+    new_rotations = wp.zeros(num_valid, dtype=wp.vec4)
     new_opacities = wp.zeros(num_valid, dtype=float)
     new_shs = wp.zeros(num_valid * 16, dtype=wp.vec3)
     
@@ -180,13 +172,9 @@ def save_ply(params, filepath, num_points):
             opacities[i]
         )
         
-        # Add rotation matrix elements
-        rot_matrix = rotations[i]
-        rot_elements = (
-            rot_matrix[0, 0], rot_matrix[0, 1], rot_matrix[0, 2],
-            rot_matrix[1, 0], rot_matrix[1, 1], rot_matrix[1, 2],
-            rot_matrix[2, 0], rot_matrix[2, 1], rot_matrix[2, 2]
-        )
+        # Add rotation quaternion elements
+        quat = rotations[i]
+        rot_elements = (quat[0], quat[1], quat[2], quat[3])  # x, y, z, w
         vertex += rot_elements
         
         # Add SH coefficients
@@ -209,9 +197,8 @@ def save_ply(params, filepath, num_points):
         ('opacity', 'f4')
     ]
     
-    # Add rotation matrix elements
-    for i in range(9):
-        vertex_type.append((f'rot_{i}', 'f4'))
+    # Add rotation quaternion elements
+    vertex_type.extend([('rot_x', 'f4'), ('rot_y', 'f4'), ('rot_z', 'f4'), ('rot_w', 'f4')])
     
     # Add SH coefficients
     vertex_type.extend([('f_dc_0', 'f4'), ('f_dc_1', 'f4'), ('f_dc_2', 'f4')])
@@ -288,7 +275,7 @@ class NeRFGaussianSplattingTrainer:
         """Initialize Gaussian parameters."""
         positions = wp.zeros(self.num_points, dtype=wp.vec3)
         scales = wp.zeros(self.num_points, dtype=wp.vec3)
-        rotations = wp.zeros(self.num_points, dtype=wp.mat33)
+        rotations = wp.zeros(self.num_points, dtype=wp.vec4)
         opacities = wp.zeros(self.num_points, dtype=float)
         shs = wp.zeros(self.num_points * 16, dtype=wp.vec3)  # 16 coeffs per point
         
@@ -314,7 +301,7 @@ class NeRFGaussianSplattingTrainer:
         grads = GaussianParams()
         grads.positions = wp.zeros(self.num_points, dtype=wp.vec3)
         grads.scales = wp.zeros(self.num_points, dtype=wp.vec3)
-        grads.rotations = wp.zeros(self.num_points, dtype=wp.mat33)
+        grads.rotations = wp.zeros(self.num_points, dtype=wp.vec4)
         grads.opacities = wp.zeros(self.num_points, dtype=float)
         grads.shs = wp.zeros(self.num_points * 16, dtype=wp.vec3)
         
@@ -509,10 +496,6 @@ class NeRFGaussianSplattingTrainer:
                 dim=self.num_points,
                 inputs=[
                     self.params.positions,
-                    self.params.scales,
-                    self.params.rotations,
-                    self.params.opacities,
-                    self.params.shs,
                     self.grads.positions,
                     self.grads.scales,
                     self.num_points,
@@ -530,11 +513,7 @@ class NeRFGaussianSplattingTrainer:
                 prune_gaussians,
                 dim=self.num_points,
                 inputs=[
-                    self.params.positions,
-                    self.params.scales,
-                    self.params.rotations,
                     self.params.opacities,
-                    self.params.shs,
                     0.1,  # opacity threshold
                     valid_mask,
                     self.num_points
@@ -658,8 +637,6 @@ class NeRFGaussianSplattingTrainer:
                     ]
                 )
                 
-                # 2. Call the backward function to compute gradients w.r.t Gaussian parameters
-                from backward import backward
                 
                 # Prepare camera parameters
                 camera = self.cameras[camera_idx]
@@ -698,7 +675,6 @@ class NeRFGaussianSplattingTrainer:
                     'n_contrib': n_contrib
                 }
                 
-                # Compute the gradients using individual parameters instead of GaussianParams
                 gradients = backward(
                     # Core parameters
                     background=np.array(self.config['background_color'], dtype=np.float32),
@@ -766,7 +742,7 @@ def main():
     parser.add_argument("--dataset", type=str, default="/Users/guomingfei/Desktop/warp-nerf-scratch/data/nerf_synthetic/lego",
                         help="Path to NeRF dataset directory (default: Lego dataset)")
     parser.add_argument("--output", type=str, default="./output", help="Output directory")
-    parser.add_argument("--iterations", type=int, default=30000, help="Number of training iterations")
+    parser.add_argument("--iterations", type=int, default=300, help="Number of training iterations")
     parser.add_argument("--learning_rate", type=float, default=0.01, help="Learning rate")
     parser.add_argument("--num_points", type=int, default=5000, help="Initial number of Gaussian points")
     parser.add_argument("--save_interval", type=int, default=1000, help="Save checkpoint every N iterations")

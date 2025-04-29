@@ -90,7 +90,7 @@ def load_ply(filename):
         
     Returns:
         Tuple of (points, scales, rotations, opacities, colors, shs)
-        where rotations are either 3x3 matrices or quaternions (x, y, z, w) based on use_quaternions
+        where rotations are quaternions (x, y, z, w)
     """
     plydata = PlyData.read(filename)
     verts = plydata['vertex'].data
@@ -123,18 +123,15 @@ def load_ply(filename):
     # Extract scale information if available, otherwise use default
     scales = np.stack([verts["scale_0"], verts["scale_1"], verts["scale_2"]], axis=-1).astype(np.float32) if all(f"scale_{i}" in verts.dtype.names for i in range(3)) else np.ones((points.shape[0], 3), dtype=np.float32)
     
-    # Extract rotation information if available, otherwise use default
-    if all(f"rot_{i}" in verts.dtype.names for i in range(9)):
-        rot_matrix_elements = np.stack([verts[f"rot_{i}"] for i in range(9)], axis=-1).astype(np.float32)
-        rotations = rot_matrix_elements.reshape(-1, 3, 3)
-        
-        # Convert rotation matrices to quaternions
-        rotations_quat = np.zeros((points.shape[0], 4), dtype=np.float32)
-        for i in range(points.shape[0]):
-            rotations_quat[i] = matrix_to_quaternion(rotations[i])
-        rotations = rotations_quat
+    # Check for rotation format:
+    # First check if quaternion components exist
+    if all(comp in verts.dtype.names for comp in ['rot_x', 'rot_y', 'rot_z', 'rot_w']):
+        # Quaternion format (x, y, z, w)
+        rotations = np.stack([verts['rot_x'], verts['rot_y'], verts['rot_z'], verts['rot_w']], axis=-1).astype(np.float32)
     else:
-        rotations = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+        # Default to identity quaternion (0, 0, 0, 1)
+        rotations = np.zeros((points.shape[0], 4), dtype=np.float32)
+        rotations[:, 3] = 1.0  # Set w component to 1.0
         
     return points, scales, rotations, opacities, colors, shs
 
