@@ -7,8 +7,6 @@ import json
 from tqdm import tqdm
 from pathlib import Path
 import argparse
-from plyfile import PlyData, PlyElement
-import math
 
 # Import the renderer and constants
 from forward import render_gaussians
@@ -17,7 +15,6 @@ from config import *
 from utils import *
 # Initialize Warp
 wp.init()
-
 
 # Kernels for parameter updates
 @wp.kernel
@@ -82,8 +79,6 @@ def zero_gradients(
     for j in range(16):
         idx = i * 16 + j
         sh_grad[idx] = wp.vec3(0.0, 0.0, 0.0)
-
-
 
 # Function to compute MSE loss
 def compute_loss(rendered_img, target_img):
@@ -152,69 +147,6 @@ def compact_point_cloud(params, valid_mask):
     
     return new_params, num_valid
 
-# Function to save point cloud to PLY file
-def save_ply(params, filepath, num_points):
-    # Get numpy arrays
-    positions = params['positions'].numpy()
-    scales = params['scales'].numpy()
-    rotations = params['rotations'].numpy()
-    opacities = params['opacities'].numpy()
-    shs = params['shs'].numpy()
-    
-    # Create vertex data
-    vertex_data = []
-    for i in range(num_points):
-        # Basic properties
-        vertex = (
-            positions[i][0], positions[i][1], positions[i][2],
-            scales[i][0], scales[i][1], scales[i][2],
-            opacities[i]
-        )
-        
-        # Add rotation quaternion elements
-        quat = rotations[i]
-        rot_elements = (quat[0], quat[1], quat[2], quat[3])  # x, y, z, w
-        vertex += rot_elements
-        
-        # Add SH coefficients
-        sh_dc = tuple(shs[i * 16][j] for j in range(3))
-        vertex += sh_dc
-        
-        # Add remaining SH coefficients
-        sh_rest = []
-        for j in range(1, 16):
-            for c in range(3):
-                sh_rest.append(shs[i * 16 + j][c])
-        vertex += tuple(sh_rest)
-        
-        vertex_data.append(vertex)
-    
-    # Define the structure of the PLY file
-    vertex_type = [
-        ('x', 'f4'), ('y', 'f4'), ('z', 'f4'),
-        ('scale_0', 'f4'), ('scale_1', 'f4'), ('scale_2', 'f4'),
-        ('opacity', 'f4')
-    ]
-    
-    # Add rotation quaternion elements
-    vertex_type.extend([('rot_x', 'f4'), ('rot_y', 'f4'), ('rot_z', 'f4'), ('rot_w', 'f4')])
-    
-    # Add SH coefficients
-    vertex_type.extend([('f_dc_0', 'f4'), ('f_dc_1', 'f4'), ('f_dc_2', 'f4')])
-    
-    # Add remaining SH coefficients
-    for i in range(45):  # 15 coeffs * 3 channels
-        vertex_type.append((f'f_rest_{i}', 'f4'))
-    
-    vertex_array = np.array(vertex_data, dtype=vertex_type)
-    el = PlyElement.describe(vertex_array, 'vertex')
-    
-    # Create directory if it doesn't exist
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    
-    # Save the PLY file
-    PlyData([el], text=False).write(filepath)
-    print(f"Point cloud saved to {filepath}")
 
 class NeRFGaussianSplattingTrainer:
     def __init__(self, dataset_path, output_path, config=None):
@@ -223,33 +155,8 @@ class NeRFGaussianSplattingTrainer:
         self.output_path = Path(output_path)
         self.output_path.mkdir(parents=True, exist_ok=True)
         
-        # Initialize default configuration
-        self.config = {
-            # 'num_iterations': 30000,
-            'num_iterations': 1000,
-            'learning_rate': 0.01,
-            'num_points': 5000,
-            'densification_interval': 100,
-            'pruning_interval': 100,
-            'scale_modifier': 1.0,
-            'sh_degree': 3,
-            'background_color': [1.0, 1.0, 1.0],  # White background for NeRF synthetic
-            'save_interval': 1000,
-            'adam_beta1': 0.9,
-            'adam_beta2': 0.999,
-            'adam_epsilon': 1e-8,
-            'initial_scale': 0.1,
-            'scene_scale': 1.0,  # Scale factor for the scene
-            'camera_angle_x': 0.0,  # Will be loaded from transforms_train.json
-            'width': 800,
-            'height': 800,
-            'near': 2.0,
-            'far': 6.0
-        }
-        
-        # Update with user-provided config
-        if config is not None:
-            self.config.update(config)
+        # Initialize configuration from GaussianParams
+        self.config = GaussianParams.get_config_dict()
         
         # Load NeRF dataset
         print(f"Loading NeRF dataset from {self.dataset_path}")
@@ -464,9 +371,6 @@ class NeRFGaussianSplattingTrainer:
         
         point_list = wp.zeros(max_rendered, dtype=int, device=DEVICE)
         
-        # Calculate tile grid for spatial optimization
-        TILE_M = 16  # These should match the values in forward.py
-        TILE_N = 16
         tile_grid_x = (image_width + TILE_M - 1) // TILE_M
         tile_grid_y = (image_height + TILE_N - 1) // TILE_N
         tile_count = tile_grid_x * tile_grid_y

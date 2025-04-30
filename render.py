@@ -7,16 +7,24 @@ import os
 import json
 from forward import render_gaussians
 from utils import world_to_view, projection_matrix, load_ply, matrix_to_quaternion
-from config import *
+from config import DEVICE, RenderParams
 
 # Initialize Warp
 wp.init()
 
-def setup_example_camera(image_width=700, image_height=700, fovx=45.0, fovy=45.0, znear=0.01, zfar=100.0):
+def setup_example_camera(image_width=None, image_height=None, fovx=None, fovy=None, znear=None, zfar=None):
     """Setup default camera parameters"""
-    # Camera position and orientation
-    camera_pos = np.array([0, 0, 5], dtype=np.float32)
-    R = np.array([[1, 0, 0], [0, 1, 0], [0, 0, -1]], dtype=np.float32)
+    # Use default values from RenderParams if not provided
+    image_width = image_width or RenderParams.default_width
+    image_height = image_height or RenderParams.default_height
+    fovx = fovx or RenderParams.default_fovx
+    fovy = fovy or RenderParams.default_fovy
+    znear = znear or RenderParams.default_znear
+    zfar = zfar or RenderParams.default_zfar
+    
+    # Camera position and orientation from RenderParams
+    camera_pos = RenderParams.default_camera_pos
+    R = RenderParams.default_camera_R
     
     # Compute matrices
     view_matrix = world_to_view(R=R, t=camera_pos)
@@ -37,13 +45,23 @@ def setup_example_camera(image_width=700, image_height=700, fovx=45.0, fovy=45.0
         'tan_fovx': tan_fovx,
         'tan_fovy': tan_fovy,
         'focal_x': focal_x,
-        'focal_y': focal_y
+        'focal_y': focal_y,
+        'width': image_width,
+        'height': image_height
     }
     
     return camera_params
 
-def example_gaussians(image_width=700, image_height=700, fovx=45.0, fovy=45.0, znear=0.01, zfar=100.0):
+def example_gaussians(image_width=None, image_height=None, fovx=None, fovy=None, znear=None, zfar=None):
     """Create example Gaussians for testing and debugging"""
+    # Use default values from RenderParams if not provided
+    image_width = image_width or RenderParams.default_width
+    image_height = image_height or RenderParams.default_height
+    fovx = fovx or RenderParams.default_fovx
+    fovy = fovy or RenderParams.default_fovy
+    znear = znear or RenderParams.default_znear
+    zfar = zfar or RenderParams.default_zfar
+    
     pts = np.array([[2, 0, -2], [0, 2, -2], [-2, 0, -2]], dtype=np.float32)
     n = len(pts)
     
@@ -165,20 +183,20 @@ if __name__ == "__main__":
                         help="Path to input data (PLY file or directory)")
     parser.add_argument("--output", type=str, default="gaussian_render.png",
                         help="Output image filename")
-    parser.add_argument("--width", type=int, default=1800, help="Image width")
-    parser.add_argument("--height", type=int, default=1800, help="Image height")
+    parser.add_argument("--width", type=int, default=RenderParams.default_width, help="Image width")
+    parser.add_argument("--height", type=int, default=RenderParams.default_height, help="Image height")
     parser.add_argument("--debug", action="store_true", help="Enable additional debug output")
     args = parser.parse_args()
     
     # Set image parameters
     image_width = args.width
     image_height = args.height
-    fovx = 45.0
-    fovy = 45.0
-    znear = 0.01
-    zfar = 100.0
-    background = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-    scale_modifier = 1.0
+    fovx = RenderParams.default_fovx
+    fovy = RenderParams.default_fovy
+    znear = RenderParams.default_znear
+    zfar = RenderParams.default_zfar
+    background = RenderParams.background_color
+    scale_modifier = RenderParams.scale_modifier
     
     if args.input_path:
         # Load Gaussians from provided path
@@ -282,12 +300,12 @@ if __name__ == "__main__":
         image_height=image_height,
         image_width=image_width,
         sh=shs,
-        degree=3,
+        degree=RenderParams.sh_degree,
         campos=camera_params['camera_pos'],
-        prefiltered=False,
-        antialiasing=False,
-        clamped=True,
-        debug=True
+        prefiltered=RenderParams.prefiltered,
+        antialiasing=RenderParams.antialiasing,
+        clamped=RenderParams.clamped,
+        debug=args.debug or RenderParams.debug
     )
 
     print("Rendering completed")
