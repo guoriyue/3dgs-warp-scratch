@@ -158,6 +158,9 @@ class NeRFGaussianSplattingTrainer:
         # Initialize configuration from GaussianParams
         self.config = GaussianParams.get_config_dict()
         
+        if config is not None:
+            self.config.update(config)
+            
         # Load NeRF dataset
         print(f"Loading NeRF dataset from {self.dataset_path}")
         self.cameras, self.image_paths = self.load_nerf_data()
@@ -229,8 +232,26 @@ class NeRFGaussianSplattingTrainer:
             transforms = json.load(f)
         
         # Extract global parameters from the transforms file
-        self.config['camera_angle_x'] = transforms.get('camera_angle_x', 0.6911112070083618)  # Default from lego
-        width = height = 800  # Default for NeRF synthetic
+        self.config['camera_angle_x'] = transforms.get('camera_angle_x', 0.6911112070083618)  # Default from lego if not specified
+        
+        # Get image dimensions from the first image if available
+        first_frame = transforms['frames'][0]
+        first_img_path = str(self.dataset_path / f"{first_frame['file_path']}.png")
+        if os.path.exists(first_img_path):
+            # Load first image to get dimensions
+            img = imageio.imread(first_img_path)
+            width = img.shape[1]
+            height = img.shape[0]
+            print(f"Using image dimensions from dataset: {width}x{height}")
+        else:
+            # Use default dimensions from config if image not found
+            width = self.config['width']
+            height = self.config['height']
+            print(f"Using default dimensions: {width}x{height}")
+        
+        # Update config with actual dimensions
+        self.config['width'] = width
+        self.config['height'] = height
         
         # Calculate focal length
         focal = 0.5 * width / np.tan(0.5 * self.config['camera_angle_x'])
@@ -660,8 +681,8 @@ class NeRFGaussianSplattingTrainer:
                 pbar.update(1)
                 pbar.set_description(f"Loss: {loss:.6f}")
                 
-                # Perform densification and pruning
-                self.densification_and_pruning(iteration)
+                # # Perform densification and pruning
+                # self.densification_and_pruning(iteration)
                 
                 # Save checkpoint
                 if iteration % self.config['save_interval'] == 0 or iteration == num_iterations - 1:
@@ -675,26 +696,13 @@ def main():
     parser.add_argument("--dataset", type=str, default="/Users/guomingfei/Desktop/warp-nerf-scratch/data/nerf_synthetic/lego",
                         help="Path to NeRF dataset directory (default: Lego dataset)")
     parser.add_argument("--output", type=str, default="./output", help="Output directory")
-    parser.add_argument("--iterations", type=int, default=300, help="Number of training iterations")
-    parser.add_argument("--learning_rate", type=float, default=0.01, help="Learning rate")
-    parser.add_argument("--num_points", type=int, default=5000, help="Initial number of Gaussian points")
-    parser.add_argument("--save_interval", type=int, default=1000, help="Save checkpoint every N iterations")
-    
+
     args = parser.parse_args()
-    
-    # Configure training
-    config = {
-        'num_iterations': args.iterations,
-        'learning_rate': args.learning_rate,
-        'num_points': args.num_points,
-        'save_interval': args.save_interval,
-    }
     
     # Create trainer and start training
     trainer = NeRFGaussianSplattingTrainer(
         dataset_path=args.dataset,
         output_path=args.output,
-        config=config
     )
     
     trainer.train()

@@ -50,14 +50,9 @@ class RenderParams:
 
 class GaussianParams:
     """Parameters for 3D Gaussian Splatting."""
-    
-    # Rendering tile configuration
-    tile_m = wp.constant(128)
-    tile_n = wp.constant(128)
-    tile_threads = 256
 
     # Training parameters
-    num_iterations = 1000  # Number of training iterations (30000 for full training)
+    num_iterations = 400  # Default number of training iterations
     learning_rate = 0.01  # Learning rate for Adam optimizer
     num_points = 5000  # Initial number of Gaussian points
 
@@ -78,12 +73,17 @@ class GaussianParams:
     scene_scale = 1.0  # Scale factor for the scene
     background_color = [1.0, 1.0, 1.0]  # White background for NeRF synthetic
 
-    # Camera parameters
-    camera_angle_x = 0.0  # Will be loaded from transforms_train.json
-    width = 800  # Image width
-    height = 800  # Image height
-    near = 2.0  # Near clipping plane
-    far = 6.0  # Far clipping plane
+    near = 0.01  # Default near clipping plane
+    far = 100.0  # Default far clipping plane
+
+    @classmethod
+    def update(cls, **kwargs):
+        """Update parameters with new values."""
+        for key, value in kwargs.items():
+            if hasattr(cls, key):
+                setattr(cls, key, value)
+            else:
+                raise ValueError(f"Unknown parameter: {key}")
 
     @classmethod
     def get_config_dict(cls):
@@ -103,9 +103,6 @@ class GaussianParams:
             'adam_epsilon': cls.adam_epsilon,
             'initial_scale': cls.initial_scale,
             'scene_scale': cls.scene_scale,
-            'camera_angle_x': cls.camera_angle_x,
-            'width': cls.width,
-            'height': cls.height,
             'near': cls.near,
             'far': cls.far
         }

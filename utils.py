@@ -2,6 +2,7 @@ import math
 import numpy as np
 from plyfile import PlyData, PlyElement
 import math
+import os
 
 def world_to_view(R, t, translate=np.array([0.0, 0.0, 0.0]), scale=1.0):
     Rt = np.zeros((4, 4))
