@@ -568,14 +568,6 @@ class NeRFGaussianSplattingTrainer:
                 loss = compute_loss(rendered_image, target_image)
                 self.losses.append(loss)
 
-                # --- CRITICAL: Missing Gradient Computation ---
-                # The core backward pass is missing here.
-                # We have pixel_grad (dL/dColor), but need dL/dParams (positions, scales, etc.).
-                # This requires a differentiable renderer or a manually implemented backward pass
-                # for the `render_gaussians` function from `wp_kernels`.
-                # The backward pass would compute how changes in each Gaussian parameter
-                # affect the final pixel colors and propagate the pixel gradients back.
-
                 # 1. Compute pixel gradients (dL/dColor)
                 height, width = rendered_image.shape[0], rendered_image.shape[1]
                 pixel_grad_buffer = wp.zeros((height, width), dtype=wp.vec3, device=DEVICE)
