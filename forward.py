@@ -542,7 +542,7 @@ def render_gaussians(
         debug: Whether to print debug information
         
     Returns:
-        Tuple of (rendered_image, depth_image) as Warp arrays
+        Tuple of (rendered_image, depth_image, intermediate_buffers)
     """
     rendered_image = wp.zeros((image_height, image_width), dtype=wp.vec3, device=DEVICE)
     depth_image = wp.zeros((image_height, image_width), dtype=float, device=DEVICE)
@@ -739,4 +739,12 @@ def render_gaussians(
                 tile_grid,             # Tile grid configuration
             ]
         )
-    return rendered_image, depth_image
+    return rendered_image, depth_image, {
+    "radii": radii,
+    "points_xy_image": points_xy_image,
+    "depths": depths,
+    "rgb": rgb,
+    "conic_opacity": conic_opacity,
+    "point_list": point_list,
+    "ranges": ranges
+}

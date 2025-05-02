@@ -73,6 +73,9 @@ class GaussianParams:
     scene_scale = 1.0  # Scale factor for the scene
     background_color = [1.0, 1.0, 1.0]  # White background for NeRF synthetic
 
+    # Loss parameters
+    lambda_dssim = 0.2  # Weight for SSIM loss (1.0 means only SSIM, 0.0 means only L1)
+
     near = 0.01  # Default near clipping plane
     far = 100.0  # Default far clipping plane
 
@@ -104,6 +107,7 @@ class GaussianParams:
             'initial_scale': cls.initial_scale,
             'scene_scale': cls.scene_scale,
             'near': cls.near,
-            'far': cls.far
+            'far': cls.far,
+            'lambda_dssim': cls.lambda_dssim
         }
 

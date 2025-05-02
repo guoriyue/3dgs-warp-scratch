@@ -13,6 +13,8 @@ from forward import render_gaussians
 from backward import backward, compute_image_loss, backprop_pixel_gradients, densify_gaussians, prune_gaussians, adam_update
 from config import *
 from utils import *
+from loss import l1_loss, ssim, compute_image_gradients, depth_l1_loss, compute_depth_gradients
+                    
 # Initialize Warp
 wp.init()
 
@@ -179,6 +181,9 @@ class NeRFGaussianSplattingTrainer:
         
         # For tracking loss
         self.losses = []
+        
+        # Initialize intermediate buffers dictionary
+        self.intermediate_buffers = {}
     
     def initialize_parameters(self):
         """Initialize Gaussian parameters."""
@@ -329,7 +334,6 @@ class NeRFGaussianSplattingTrainer:
     
     def render_view(self, camera_idx):
         """Render a view from a specific camera using the current point cloud."""
-        # Note: `render_gaussians` is now imported at the top of the file.
         camera = self.cameras[camera_idx]
         
         # Get point cloud data as numpy arrays
@@ -340,7 +344,7 @@ class NeRFGaussianSplattingTrainer:
         shs_np = self.params['shs'].numpy()
         
         # Render using the warp renderer
-        rendered_img, depth_image = render_gaussians(
+        return render_gaussians(
             background=np.array(self.config['background_color'], dtype=np.float32),
             means3D=positions_np,
             colors=None,  # Use SH coefficients instead
@@ -361,45 +365,7 @@ class NeRFGaussianSplattingTrainer:
             antialiasing=True,
             clamped=True
         )
-        
-        return rendered_img
-    
-    def get_render_buffers(self):
-        """Return the last set of buffers from the rendering process.
-        This function should be called after render_view.
-        
-        Returns:
-            Tuple of buffer arrays needed for backward pass
-        """
-        # Unfortunately, render_gaussians doesn't expose these buffers
-        # We need to modify the rendering code to save these arrays
-        
-        # For now, create mock buffers with appropriate sizes
-        num_points = self.params['positions'].shape[0]
-        
-        # Create placeholder buffers
-        radii = wp.zeros(num_points, dtype=int, device=DEVICE)
-        points_xy_image = wp.zeros(num_points, dtype=wp.vec2, device=DEVICE)
-        depths = wp.zeros(num_points, dtype=float, device=DEVICE)
-        rgb = wp.zeros(num_points, dtype=wp.vec3, device=DEVICE)
-        conic_opacity = wp.zeros(num_points, dtype=wp.vec4, device=DEVICE)
-        
-        # Number of rendered points (we don't know this without running forward pass)
-        # This is a very rough estimate - all points visible from all tiles
-        image_width = self.cameras[0]['width']
-        image_height = self.cameras[0]['height']
-        max_rendered = num_points * 10  # Overestimate
-        
-        point_list = wp.zeros(max_rendered, dtype=int, device=DEVICE)
-        
-        tile_grid_x = (image_width + TILE_M - 1) // TILE_M
-        tile_grid_y = (image_height + TILE_N - 1) // TILE_N
-        tile_count = tile_grid_x * tile_grid_y
-        
-        ranges = wp.zeros(tile_count, dtype=wp.vec2i, device=DEVICE)
-                
-        return radii, points_xy_image, depths, rgb, conic_opacity, point_list, ranges
-    
+
     def zero_grad(self):
         """Zero out all gradients."""
         wp.launch(
@@ -538,7 +504,7 @@ class NeRFGaussianSplattingTrainer:
         
         # Save a rendered view
         camera_idx = 0  # Front view
-        rendered_image = self.render_view(camera_idx)
+        rendered_image, _, _ = self.render_view(camera_idx)
         plt.figure(figsize=(10, 10))
         plt.imshow(rendered_image)
         plt.title(f'Rendered View at Iteration {iteration}')
@@ -562,27 +528,23 @@ class NeRFGaussianSplattingTrainer:
                 self.zero_grad()
                 
                 # Render the view
-                rendered_image = self.render_view(camera_idx)
-                
-                # Compute loss
-                loss = compute_loss(rendered_image, target_image)
-                self.losses.append(loss)
+                rendered_image, depth_image, self.intermediate_buffers = self.render_view(camera_idx)
 
-                # 1. Compute pixel gradients (dL/dColor)
-                height, width = rendered_image.shape[0], rendered_image.shape[1]
-                pixel_grad_buffer = wp.zeros((height, width), dtype=wp.vec3, device=DEVICE)
-                wp.launch(
-                    kernel=backprop_pixel_gradients,
-                    dim=(width, height),
-                    inputs=[
-                        rendered_image,
-                        target_image,
-                        pixel_grad_buffer,
-                        width,
-                        height
-                    ]
-                )
+                # Calculate L1 loss
+                l1_val = l1_loss(rendered_image, target_image)
                 
+                # Calculate SSIM
+                ssim_val = ssim(rendered_image, target_image)
+                
+                # Combined loss with weighted SSIM
+                lambda_dssim = self.config['lambda_dssim']
+                loss = (1.0 - lambda_dssim) * l1_val + lambda_dssim * (1.0 - ssim_val)
+                self.losses.append(loss)
+                
+                # Compute pixel gradients for image loss (dL/dColor)
+                pixel_grad_buffer = compute_image_gradients(
+                    rendered_image, target_image, lambda_dssim
+                )
                 
                 # Prepare camera parameters
                 camera = self.cameras[camera_idx]
@@ -590,14 +552,9 @@ class NeRFGaussianSplattingTrainer:
                 proj_matrix = wp.mat44(camera['proj_matrix'].flatten())
                 campos = wp.vec3(camera['camera_pos'][0], camera['camera_pos'][1], camera['camera_pos'][2])
                 
-                # For the render_gaussians function in forward.py, we need to collect all the 
-                # intermediate data that was computed during the forward pass
+                # Get buffers from the forward pass through render_gaussians
+                radii, points_xy_image, depths, rgb, conic_opacity, point_list, ranges = self.get_render_buffers()
                 
-                # Get these values from the last call to render_gaussians
-                # We need to modify render_view to return these buffers
-                radii, points_xy_image, depths, rgb, conic_opacity, point_list, ranges = \
-                    self.get_render_buffers()
-                    
                 # Create appropriate buffer dictionaries for the backward pass
                 geom_buffer = {
                     'radii': radii,
@@ -610,10 +567,9 @@ class NeRFGaussianSplattingTrainer:
                     'point_list': point_list
                 }
                 
-                # To get final_Ts and n_contrib, we would need to save these from the forward pass
-                # For now, create empty placeholders
-                final_Ts = wp.zeros((height, width), dtype=float, device=DEVICE)
-                n_contrib = wp.zeros((height, width), dtype=int, device=DEVICE)
+                # Get final_Ts and n_contrib from the stored intermediate buffers
+                final_Ts = self.intermediate_buffers['final_Ts']
+                n_contrib = self.intermediate_buffers['n_contrib']
                 
                 img_buffer = {
                     'ranges': ranges,
@@ -648,6 +604,7 @@ class NeRFGaussianSplattingTrainer:
                     means2D=points_xy_image,
                     conic_opacity=conic_opacity,
                     rgb=rgb,
+                    depth=depth_image,
                     
                     # Internal state buffers
                     geom_buffer=geom_buffer,
@@ -673,8 +630,8 @@ class NeRFGaussianSplattingTrainer:
                 pbar.update(1)
                 pbar.set_description(f"Loss: {loss:.6f}")
                 
-                # # Perform densification and pruning
-                # self.densification_and_pruning(iteration)
+                # Perform densification and pruning
+                self.densification_and_pruning(iteration)
                 
                 # Save checkpoint
                 if iteration % self.config['save_interval'] == 0 or iteration == num_iterations - 1:

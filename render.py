@@ -285,7 +285,7 @@ if __name__ == "__main__":
     print(f"Starting rendering with {n} points to {image_width}x{image_height} image")
     
     # Call the Gaussian rasterizer
-    rendered_image, depth_image = render_gaussians(
+    rendered_image, depth_image, _ = render_gaussians(
         background=background,
         means3D=pts,
         colors=colors,
