@@ -593,6 +593,14 @@ class NeRFGaussianSplattingTrainer:
                 wp.copy(self.grads['opacities'], gradients['dL_dopacity'])
                 wp.copy(self.grads['shs'], gradients['dL_dshs'])
 
+                print("self.grads['positions']", self.grads['positions'])
+                print("self.grads['scales']", self.grads['scales'])
+                print("self.grads['rotations']", self.grads['rotations'])
+                print("self.grads['opacities']", self.grads['opacities'])
+                print("self.grads['shs']", self.grads['shs'])
+                print("Rendered image mean:", rendered_image.mean())
+                print("Pixel gradient mean:", wp.to_torch(pixel_grad_buffer).abs().mean())
+
                 # Update parameters
                 self.optimizer_step(iteration)
                 
