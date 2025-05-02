@@ -1,6 +1,7 @@
 import warp as wp
 import numpy as np
 from config import DEVICE
+from utils import *
 
 # Constants for SSIM calculation
 C1 = 0.01 ** 2
@@ -88,9 +89,9 @@ def ssim_kernel(
                 # Accumulate weighted values
                 mu1 += p1 * w
                 mu2 += p2 * w
-                sigma1 += p1 * p1 * w
-                sigma2 += p2 * p2 * w
-                sigma12 += p1 * p2 * w
+                sigma1 += wp_vec3_mul_element(p1, p1) * w
+                sigma2 += wp_vec3_mul_element(p2, p2) * w
+                sigma12 += wp_vec3_mul_element(p1, p2) * w
                 weight_sum += w
     
     # Normalize by weights
@@ -102,9 +103,9 @@ def ssim_kernel(
         sigma12 /= weight_sum
     
     # Calculate variance and covariance
-    sigma1 = sigma1 - mu1 * mu1
-    sigma2 = sigma2 - mu2 * mu2
-    sigma12 = sigma12 - mu1 * mu2
+    sigma1 = sigma1 - wp_vec3_mul_element(mu1, mu1)
+    sigma2 = sigma2 - wp_vec3_mul_element(mu2, mu2)
+    sigma12 = sigma12 - wp_vec3_mul_element(mu1, mu2)
     
     # Calculate SSIM for each channel
     ssim_r = ((2.0 * mu1[0] * mu2[0] + c1) * (2.0 * sigma12[0] + c2)) / ((mu1[0] * mu1[0] + mu2[0] * mu2[0] + c1) * (sigma1[0] + sigma2[0] + c2))
