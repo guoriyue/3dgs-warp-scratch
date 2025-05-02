@@ -13,7 +13,7 @@ from forward import render_gaussians
 from backward import backward, compute_image_loss, backprop_pixel_gradients, densify_gaussians, prune_gaussians, adam_update
 from config import *
 from utils import *
-from loss import l1_loss, ssim, compute_image_gradients, depth_l1_loss, compute_depth_gradients
+from loss import l1_loss, ssim, compute_image_gradients
                     
 # Initialize Warp
 wp.init()
@@ -551,30 +551,23 @@ class NeRFGaussianSplattingTrainer:
                 view_matrix = wp.mat44(camera['view_matrix'].flatten())
                 proj_matrix = wp.mat44(camera['proj_matrix'].flatten())
                 campos = wp.vec3(camera['camera_pos'][0], camera['camera_pos'][1], camera['camera_pos'][2])
-                
-                # Get buffers from the forward pass through render_gaussians
-                radii, points_xy_image, depths, rgb, conic_opacity, point_list, ranges = self.get_render_buffers()
-                
+
                 # Create appropriate buffer dictionaries for the backward pass
                 geom_buffer = {
-                    'radii': radii,
-                    'means2D': points_xy_image,
-                    'conic_opacity': conic_opacity,
-                    'rgb': rgb
+                    'radii': self.intermediate_buffers['radii'],
+                    'means2D': self.intermediate_buffers['points_xy_image'],
+                    'conic_opacity': self.intermediate_buffers['conic_opacity'],
+                    'rgb': self.intermediate_buffers['rgb']
                 }
                 
                 binning_buffer = {
-                    'point_list': point_list
+                    'point_list': self.intermediate_buffers['point_list']
                 }
                 
-                # Get final_Ts and n_contrib from the stored intermediate buffers
-                final_Ts = self.intermediate_buffers['final_Ts']
-                n_contrib = self.intermediate_buffers['n_contrib']
-                
                 img_buffer = {
-                    'ranges': ranges,
-                    'final_Ts': final_Ts,
-                    'n_contrib': n_contrib
+                    'ranges': self.intermediate_buffers['ranges'],
+                    'final_Ts': self.intermediate_buffers['final_Ts'],
+                    'n_contrib': self.intermediate_buffers['n_contrib']
                 }
                 
                 gradients = backward(
@@ -600,11 +593,11 @@ class NeRFGaussianSplattingTrainer:
                     campos=campos,
                     
                     # Forward output buffers
-                    radii=radii,
-                    means2D=points_xy_image,
-                    conic_opacity=conic_opacity,
-                    rgb=rgb,
-                    depth=depth_image,
+                    radii=self.intermediate_buffers['radii'],
+                    means2D=self.intermediate_buffers['points_xy_image'],
+                    conic_opacity=self.intermediate_buffers['conic_opacity'],
+                    rgb=self.intermediate_buffers['rgb'],
+                    depth=self.intermediate_buffers['depth'],
                     
                     # Internal state buffers
                     geom_buffer=geom_buffer,
