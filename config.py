@@ -52,7 +52,7 @@ class GaussianParams:
     """Parameters for 3D Gaussian Splatting."""
 
     # Training parameters
-    num_iterations = 400  # Default number of training iterations
+    num_iterations = 100  # Default number of training iterations
     learning_rate = 0.01  # Learning rate for Adam optimizer
     num_points = 5000  # Initial number of Gaussian points
 

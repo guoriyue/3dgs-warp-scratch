@@ -42,7 +42,7 @@ def gaussian_kernel(
     
     center = kernel_size // 2
     x = i - center
-    kernel[i] = wp.exp(-(x * x) / (2.0 * sigma * sigma))
+    kernel[i] = wp.exp(-1.0 * float(x * x) / (2.0 * sigma * sigma))
 
 @wp.kernel
 def ssim_kernel(
@@ -71,7 +71,7 @@ def ssim_kernel(
     sigma1 = wp.vec3(0.0, 0.0, 0.0)
     sigma2 = wp.vec3(0.0, 0.0, 0.0)
     sigma12 = wp.vec3(0.0, 0.0, 0.0)
-    weight_sum = 0.0
+    weight_sum = float(0.0)
     
     # Calculate weighted means and variances over the window
     for y in range(max(0, j - half_window), min(height, j + half_window + 1)):
@@ -240,7 +240,6 @@ def compute_image_gradients(rendered, target, lambda_dssim=0.2):
         inputs=[d_rendered, d_target, pixel_grad, width, height, l1_weight]
     )
     
-    # TODO: Add SSIM gradient computation here if needed
-    # For now, we'll use the L1 gradient as an approximation
+    # TODO: Add SSIM gradient
     
     return pixel_grad
