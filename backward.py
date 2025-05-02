@@ -1162,52 +1162,6 @@ def backward(
         'dL_dcov3D': dL_dcov3D
     }
 
-
-@wp.kernel
-def compute_image_loss(
-    rendered: wp.array2d(dtype=wp.vec3),
-    target: wp.array2d(dtype=wp.vec3),
-    loss_buffer: wp.array(dtype=float),
-    width: int,
-    height: int
-):
-    i, j = wp.tid()
-    if i >= width or j >= height:
-        return
-    
-    # Compute squared difference for each pixel component
-    rendered_pixel = rendered[i, j]
-    target_pixel = target[i, j]
-    diff = rendered_pixel - target_pixel
-    squared_diff = diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2]
-    
-    # Atomic add to loss buffer
-    wp.atomic_add(loss_buffer, 0, squared_diff)
-
-@wp.kernel
-def backprop_pixel_gradients(
-    rendered: wp.array2d(dtype=wp.vec3),
-    target: wp.array2d(dtype=wp.vec3),
-    pixel_grad: wp.array2d(dtype=wp.vec3),
-    width: int,
-    height: int
-):
-    i, j = wp.tid()
-    if i >= width or j >= height:
-        return
-    
-    # Compute gradient (2 * diff for MSE loss)
-    rendered_pixel = rendered[i, j]
-    target_pixel = target[i, j]
-    diff = rendered_pixel - target_pixel
-    
-    # 2 * diff for mean squared error gradient
-    pixel_grad[i, j] = wp.vec3(
-        2.0 * diff[0], 
-        2.0 * diff[1], 
-        2.0 * diff[2]
-    )
-
 @wp.kernel
 def densify_gaussians(
     positions: wp.array(dtype=wp.vec3),

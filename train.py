@@ -10,7 +10,7 @@ import argparse
 
 # Import the renderer and constants
 from forward import render_gaussians
-from backward import backward, compute_image_loss, backprop_pixel_gradients, densify_gaussians, prune_gaussians, adam_update
+from backward import backward, densify_gaussians, prune_gaussians, adam_update
 from config import *
 from utils import *
 from loss import l1_loss, ssim, compute_image_gradients
@@ -37,11 +37,10 @@ def init_gaussian_params(
     # Generate random positions using a single seed derived from the index
     seed = wp.uint32(i)
     positions[i] = wp.vec3(
-        wp.randn(seed) * 0.5,
-        wp.randn(seed + wp.uint32(1000)) * 0.5,
-        wp.randn(seed + wp.uint32(2000)) * 0.5
+        wp.min(wp.max(wp.randn(seed), -1.0), 1.0) * 0.5,
+        wp.min(wp.max(wp.randn(seed + wp.uint32(1000)), -1.0), 1.0) * 0.5,
+        wp.min(wp.max(wp.randn(seed + wp.uint32(2000)), 0.2), 2.0)
     )
-    
     # Initialize scales
     scales[i] = wp.vec3(init_scale, init_scale, init_scale)
     
@@ -81,28 +80,6 @@ def zero_gradients(
     for j in range(16):
         idx = i * 16 + j
         sh_grad[idx] = wp.vec3(0.0, 0.0, 0.0)
-
-# Function to compute MSE loss
-def compute_loss(rendered_img, target_img):
-    height, width = rendered_img.shape[0], rendered_img.shape[1]
-    
-    # Create device arrays
-    d_rendered = wp.array(rendered_img, dtype=wp.vec3)
-    d_target = wp.array(target_img, dtype=wp.vec3)
-    
-    # Create loss buffer
-    loss_buffer = wp.zeros(1, dtype=float)
-    
-    # Compute loss
-    wp.launch(
-        compute_image_loss,
-        dim=(width, height),
-        inputs=[d_rendered, d_target, loss_buffer, width, height]
-    )
-    
-    # Get loss value
-    loss = float(loss_buffer.numpy()[0]) / (width * height)
-    return loss
 
 # Function to create a new point cloud with a reduced set of points
 def compact_point_cloud(params, valid_mask):
@@ -538,12 +515,12 @@ class NeRFGaussianSplattingTrainer:
                 
                 # Combined loss with weighted SSIM
                 lambda_dssim = self.config['lambda_dssim']
+                # loss = (1 - λ) * L1 + λ * (1 - SSIM)
                 loss = (1.0 - lambda_dssim) * l1_val + lambda_dssim * (1.0 - ssim_val)
                 self.losses.append(loss)
-                
                 # Compute pixel gradients for image loss (dL/dColor)
                 pixel_grad_buffer = compute_image_gradients(
-                    rendered_image, target_image, lambda_dssim
+                    rendered_image, target_image, lambda_dssim=lambda_dssim
                 )
                 
                 # Prepare camera parameters

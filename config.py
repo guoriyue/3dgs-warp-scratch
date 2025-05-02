@@ -52,14 +52,14 @@ class GaussianParams:
     """Parameters for 3D Gaussian Splatting."""
 
     # Training parameters
-    num_iterations = 100  # Default number of training iterations
+    num_iterations = 1000  # Default number of training iterations
     learning_rate = 0.01  # Learning rate for Adam optimizer
     num_points = 5000  # Initial number of Gaussian points
 
     # Optimization parameters
-    densification_interval = 100  # Perform densification every N iterations
-    pruning_interval = 100  # Perform pruning every N iterations
-    save_interval = 1000  # Save checkpoint every N iterations
+    densification_interval = 300  # Perform densification every N iterations
+    pruning_interval = 300  # Perform pruning every N iterations
+    save_interval = 300  # Save checkpoint every N iterations
     adam_beta1 = 0.9  # Adam optimizer beta1 parameter
     adam_beta2 = 0.999  # Adam optimizer beta2 parameter
     adam_epsilon = 1e-8  # Adam optimizer epsilon parameter
@@ -74,8 +74,9 @@ class GaussianParams:
     background_color = [1.0, 1.0, 1.0]  # White background for NeRF synthetic
 
     # Loss parameters
-    lambda_dssim = 0.2  # Weight for SSIM loss (1.0 means only SSIM, 0.0 means only L1)
-
+    # lambda_dssim = 0.2  # Weight for SSIM loss (1.0 means only SSIM, 0.0 means only L1)
+    lambda_dssim = 0.0
+    
     near = 0.01  # Default near clipping plane
     far = 100.0  # Default far clipping plane
 
