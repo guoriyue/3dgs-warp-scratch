@@ -598,7 +598,7 @@ class NeRFGaussianSplattingTrainer:
                 print("self.grads['rotations']", self.grads['rotations'])
                 print("self.grads['opacities']", self.grads['opacities'])
                 print("self.grads['shs']", self.grads['shs'])
-                print("Rendered image mean:", rendered_image.mean())
+                print("Rendered image mean:", wp.to_torch(rendered_image).mean().item())
                 print("Pixel gradient mean:", wp.to_torch(pixel_grad_buffer).abs().mean())
 
                 # Update parameters
