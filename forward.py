@@ -218,7 +218,8 @@ def wp_preprocess(
     
     p_view = in_frustum(p_orig, view_matrix)
     
-    if p_view[2] <= 0.2:
+    if p_view[2] <= 0.2 and p_view[2] >= -0.2:
+        # absolute value of p_view[2]
         return
     
     p_hom = wp.vec4(p_view[0], p_view[1], p_view[2], 1.0)

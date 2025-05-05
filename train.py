@@ -368,9 +368,8 @@ class NeRFGaussianSplattingTrainer:
 
         xy_image = np.stack([x_img, y_img], axis=1)  # (N, 2)
 
-        # save image
-        imageio.imwrite(self.output_path / "train_projected_image.png", xy_image)
-        
+        print("projected xy min/max", xy_image.min(0), xy_image.max(0))
+        print("depth min/max", depth.min(), depth.max())
         return xy_image, depth
 
 
@@ -427,8 +426,7 @@ class NeRFGaussianSplattingTrainer:
         test_gaussians = np.random.normal(loc=init_center, scale=0.1, size=(100, 3))
         
         xy, depth = self.project_points(test_gaussians, test_view, test_proj, camera['width'], camera['height'])
-        print("projected xy min/max", xy.min(0), xy.max(0))
-        print("depth min/max", depth.min(), depth.max())
+
 
         
         
@@ -641,36 +639,6 @@ class NeRFGaussianSplattingTrainer:
                 
                 print("conic_opacity min/max:", np.min(self.intermediate_buffers['conic_opacity']), np.max(self.intermediate_buffers['conic_opacity']))
                 
-                    
-                def test_project_points(positions, view_matrix, proj_matrix, width, height):
-                    import numpy as np
-
-                    # homogeneous coordinate
-                    N = positions.shape[0]
-                    homo = np.concatenate([positions, np.ones((N, 1))], axis=1)  # (N, 4)
-
-                    # convert to camera space
-                    cam = homo @ view_matrix.T  # (N, 4)
-                    
-                    # clip space
-                    clip = cam @ proj_matrix.T  # (N, 4)
-                    
-                    # perspective divide
-                    ndc = clip[:, :3] / clip[:, 3:4]  # (x, y, z)
-                    
-                    # screen space
-                    xy_image = (ndc[:, :2] + 1.0) * 0.5 * np.array([width, height])
-                    depth = ndc[:, 2]
-
-                    print("xy_image min/max", xy_image.min(), xy_image.max())
-                    print("depth min/max", depth.min(), depth.max())
-                    return xy_image, depth
-                
-                test_project_points(self.params['positions'], self.cameras[0]['view_matrix'], self.cameras[0]['proj_matrix'], self.cameras[0]['width'], self.cameras[0]['height'])
-
-
-
-            
 
 
                 # exit()
@@ -714,6 +682,7 @@ class NeRFGaussianSplattingTrainer:
                     'n_contrib': self.intermediate_buffers['n_contrib']
                 }
                 
+                print("self.params['positions']", self.params['positions'])
                 gradients = backward(
                     # Core parameters
                     background=np.array(self.config['background_color'], dtype=np.float32),
