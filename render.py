@@ -101,7 +101,7 @@ def example_gaussians(image_width=None, image_height=None, fovx=None, fovy=None,
         znear=znear,
         zfar=zfar
     )
-    
+    print("camera_params", camera_params)
     return pts, shs, scales, colors, rotations, opacities, camera_params
 
 

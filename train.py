@@ -21,6 +21,7 @@ wp.init()
 # Kernels for parameter updates
 @wp.kernel
 def init_gaussian_params(
+    camera_center: wp.vec3,
     positions: wp.array(dtype=wp.vec3),
     scales: wp.array(dtype=wp.vec3),
     rotations: wp.array(dtype=wp.vec4),
@@ -35,12 +36,15 @@ def init_gaussian_params(
     
     # Initialize positions with random values
     # Generate random positions using a single seed derived from the index
-    seed = wp.uint32(i)
-    positions[i] = wp.vec3(
-        wp.min(wp.max(wp.randn(seed), -1.0), 1.0) * 0.5,
-        wp.min(wp.max(wp.randn(seed + wp.uint32(1000)), -1.0), 1.0) * 0.5,
-        wp.min(wp.max(wp.randn(seed + wp.uint32(2000)), 0.2), 2.0)
+    seed = i
+    
+    offset = wp.vec3(
+        wp.randn(wp.uint32(seed)) * 0.7,
+        wp.randn(wp.uint32(seed + 1)) * 0.7,
+        wp.randn(wp.uint32(seed + 2)) * 0.7,
     )
+    positions[i] = camera_center + offset
+    
     # Initialize scales
     scales[i] = wp.vec3(init_scale, init_scale, init_scale)
     
@@ -51,12 +55,14 @@ def init_gaussian_params(
     opacities[i] = 0.5
     
     # Initialize SH coefficients (just DC term for now)
-    for j in range(16):  # Assuming degree 3 (16 coefficients)
+    for j in range(16):  # degree=3, total 16 coefficients
         idx = i * 16 + j
-        if j == 0:  # DC term
-            shs[idx] = wp.vec3(0.5, 0.5, 0.5)
-        else:
-            shs[idx] = wp.vec3(0.0, 0.0, 0.0)
+        # Slight random initialization with positive bias
+        shs[idx] = wp.vec3(
+            wp.clamp(wp.randn(wp.uint32(seed + j * 100)) * 0.3 + 0.5, 0.0, 1.0),
+            wp.clamp(wp.randn(wp.uint32(seed + j * 100 + 1)) * 0.3 + 0.5, 0.0, 1.0),
+            wp.clamp(wp.randn(wp.uint32(seed + j * 100 + 2)) * 0.3 + 0.5, 0.0, 1.0),
+        )
 
 @wp.kernel
 def zero_gradients(
@@ -169,12 +175,12 @@ class NeRFGaussianSplattingTrainer:
         rotations = wp.zeros(self.num_points, dtype=wp.vec4)
         opacities = wp.zeros(self.num_points, dtype=float)
         shs = wp.zeros(self.num_points * 16, dtype=wp.vec3)  # 16 coeffs per point
-        
+        camera_center, camera_direction = self.compute_initialization_center()
         # Launch kernel to initialize parameters
         wp.launch(
             init_gaussian_params,
             dim=self.num_points,
-            inputs=[positions, scales, rotations, opacities, shs, self.num_points, self.config['initial_scale']]
+            inputs=[camera_center, positions, scales, rotations, opacities, shs, self.num_points, self.config['initial_scale']]
         )
         
         # Return parameters as dictionary
@@ -203,6 +209,23 @@ class NeRFGaussianSplattingTrainer:
             'shs': shs
         }
     
+    def compute_initialization_center(self):
+        """Compute central point and average view direction from multiple cameras."""
+        positions = np.array([cam['camera_pos'] for cam in self.cameras])  # (N, 3)
+        centers = []
+        directions = []
+
+        for cam in self.cameras:
+            R = cam['R']  # rotation matrix (3x3)
+            cam_pos = cam['camera_pos']  # (3,)
+            forward = -R[:, 2]  # camera forward direction (negative z-axis)
+            centers.append(np.array(cam_pos) + forward * 1.0)  # lookahead point
+            directions.append(forward)
+
+        avg_center = np.mean(centers, axis=0)
+        avg_direction = np.mean(directions, axis=0)
+        return avg_center, avg_direction / np.linalg.norm(avg_direction)
+
     def load_nerf_data(self):
         """Load camera parameters and images from a NeRF dataset."""
         # Read transforms_train.json
@@ -212,9 +235,6 @@ class NeRFGaussianSplattingTrainer:
         
         with open(transforms_path, 'r') as f:
             transforms = json.load(f)
-        
-        # Extract global parameters from the transforms file
-        self.config['camera_angle_x'] = transforms.get('camera_angle_x', 0.6911112070083618)  # Default from lego if not specified
         
         # Get image dimensions from the first image if available
         first_frame = transforms['frames'][0]
@@ -234,6 +254,8 @@ class NeRFGaussianSplattingTrainer:
         # Update config with actual dimensions
         self.config['width'] = width
         self.config['height'] = height
+        
+        self.config['camera_angle_x'] = transforms['camera_angle_x']
         
         # Calculate focal length
         focal = 0.5 * width / np.tan(0.5 * self.config['camera_angle_x'])
@@ -309,6 +331,49 @@ class NeRFGaussianSplattingTrainer:
         else:
             raise FileNotFoundError(f"Image not found: {path}")
     
+    def project_points(self, points_3d, view_matrix, proj_matrix, W, H):
+        """
+        Projects 3D points into image space (pixel xy and depth) using the given view and projection matrices.
+
+        Args:
+            points_3d (np.ndarray): (N, 3) array of 3D points in world coordinates
+            view_matrix (np.ndarray): (4, 4) view matrix (world-to-camera)
+            proj_matrix (np.ndarray): (4, 4) projection matrix (camera-to-clip)
+            W (int): image width
+            H (int): image height
+
+        Returns:
+            xy_image: (N, 2) projected pixel coordinates (in image space)
+            depth: (N,) depth values in view space (i.e., z in camera space)
+        """
+        N = points_3d.shape[0]
+
+        # Convert to homogeneous coordinates
+        points_h = np.concatenate([points_3d, np.ones((N, 1))], axis=1)  # (N, 4)
+
+        # Transform to view space
+        view_points = (view_matrix @ points_h.T).T  # (N, 4)
+        depth = view_points[:, 2]  # z in view space
+
+        # Transform to clip space
+        clip_points = (proj_matrix @ view_points.T).T  # (N, 4)
+        clip_points /= clip_points[:, 3:4]  # perspective divide
+
+        # Map to NDC [-1, 1]
+        ndc = clip_points[:, :3]
+
+        # Map NDC to image coordinates
+        x_img = (ndc[:, 0] + 1) * 0.5 * W
+        y_img = (ndc[:, 1] + 1) * 0.5 * H
+
+        xy_image = np.stack([x_img, y_img], axis=1)  # (N, 2)
+
+        # save image
+        imageio.imwrite(self.output_path / "train_projected_image.png", xy_image)
+        
+        return xy_image, depth
+
+
     def render_view(self, camera_idx):
         """Render a view from a specific camera using the current point cloud."""
         camera = self.cameras[camera_idx]
@@ -319,6 +384,55 @@ class NeRFGaussianSplattingTrainer:
         rotations_np = self.params['rotations'].numpy()
         opacities_np = self.params['opacities'].numpy()
         shs_np = self.params['shs'].numpy()
+        
+        print("positions_np", positions_np)
+        print("scales_np", scales_np)
+        print("rotations_np", rotations_np)
+        print("opacities_np", opacities_np)
+        print("shs_np", shs_np)
+        print("camera['view_matrix']", camera['view_matrix'])
+        print("camera['proj_matrix']", camera['proj_matrix'])
+        print("camera['tan_fovx']", camera['tan_fovx'])
+        print("camera['tan_fovy']", camera['tan_fovy'])
+        print("camera['height']", camera['height'])
+        print("camera['width']", camera['width'])
+        
+        # print("Sample Gaussian:", positions[0])
+        print("Camera center:", camera['camera_pos'])
+        print("Camera forward:", -camera['R'][:, 2])  # NeRF camera faces -Z
+        print("Focal length (pixels):", camera['focal_x'])
+        print("Projection matrix:\n", camera['proj_matrix'])
+        print("View matrix:\n", camera['view_matrix'])
+
+
+        print("self.config['scale_modifier']", self.config['scale_modifier'])
+        print("self.config['sh_degree']", self.config['sh_degree'])
+        print("camera['camera_pos']", camera['camera_pos'])
+        print("prefiltered", False)
+        print("antialiasing", True)
+        print("clamped", True)
+        print("background", np.array(self.config['background_color'], dtype=np.float32))
+        
+        
+        
+        # 画出所有 camera center
+        camera_center, init_center = self.compute_initialization_center()
+
+        print("All camera centers min/max:", camera_center.min(0), camera_center.max(0))
+        print("Gaussian init center:", init_center)
+
+        # 加一个 sanity check projection
+        test_view = camera['view_matrix']
+        test_proj = camera['proj_matrix']
+        test_gaussians = np.random.normal(loc=init_center, scale=0.1, size=(100, 3))
+        
+        xy, depth = self.project_points(test_gaussians, test_view, test_proj, camera['width'], camera['height'])
+        print("projected xy min/max", xy.min(0), xy.max(0))
+        print("depth min/max", depth.min(), depth.max())
+
+        
+        
+
         
         # Render using the warp renderer
         return render_gaussians(
@@ -507,6 +621,59 @@ class NeRFGaussianSplattingTrainer:
                 # Render the view
                 rendered_image, depth_image, self.intermediate_buffers = self.render_view(camera_idx)
 
+                # save rendered image for debug
+                # Convert to uint8 format before saving to avoid the data type error
+                rendered_uint8 = (np.clip(rendered_image, 0, 1) * 255).astype(np.uint8)
+                target_uint8 = (np.clip(target_image, 0, 1) * 255).astype(np.uint8)
+                imageio.imwrite(self.output_path / "train_rendered_image.png", rendered_uint8)
+                imageio.imwrite(self.output_path / "train_target_image.png", target_uint8)
+                
+                
+                print("n_contrib max:", np.max(self.intermediate_buffers['n_contrib']))
+                print("n_contrib min:", np.min(self.intermediate_buffers['n_contrib']))
+                print("self.intermediate_buffers['n_contrib']", self.intermediate_buffers['n_contrib'])
+                print("self.intermediate_buffers", self.intermediate_buffers)
+                xy = self.intermediate_buffers['points_xy_image']
+                print("Projected image coords min/max:", np.min(xy), np.max(xy))
+                
+                depth = self.intermediate_buffers['depth']
+                print("depth min/max:", np.min(depth), np.max(depth))
+                
+                print("conic_opacity min/max:", np.min(self.intermediate_buffers['conic_opacity']), np.max(self.intermediate_buffers['conic_opacity']))
+                
+                    
+                def test_project_points(positions, view_matrix, proj_matrix, width, height):
+                    import numpy as np
+
+                    # homogeneous coordinate
+                    N = positions.shape[0]
+                    homo = np.concatenate([positions, np.ones((N, 1))], axis=1)  # (N, 4)
+
+                    # convert to camera space
+                    cam = homo @ view_matrix.T  # (N, 4)
+                    
+                    # clip space
+                    clip = cam @ proj_matrix.T  # (N, 4)
+                    
+                    # perspective divide
+                    ndc = clip[:, :3] / clip[:, 3:4]  # (x, y, z)
+                    
+                    # screen space
+                    xy_image = (ndc[:, :2] + 1.0) * 0.5 * np.array([width, height])
+                    depth = ndc[:, 2]
+
+                    print("xy_image min/max", xy_image.min(), xy_image.max())
+                    print("depth min/max", depth.min(), depth.max())
+                    return xy_image, depth
+                
+                test_project_points(self.params['positions'], self.cameras[0]['view_matrix'], self.cameras[0]['proj_matrix'], self.cameras[0]['width'], self.cameras[0]['height'])
+
+
+
+            
+
+
+                # exit()
                 # Calculate L1 loss
                 l1_val = l1_loss(rendered_image, target_image)
                 
@@ -600,7 +767,10 @@ class NeRFGaussianSplattingTrainer:
                 print("self.grads['shs']", self.grads['shs'])
                 print("Rendered image mean:", wp.to_torch(rendered_image).mean().item())
                 print("Pixel gradient mean:", wp.to_torch(pixel_grad_buffer).abs().mean())
+                
+                
 
+                exit()
                 # Update parameters
                 self.optimizer_step(iteration)
                 

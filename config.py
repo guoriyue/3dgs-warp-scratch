@@ -65,8 +65,10 @@ class GaussianParams:
     adam_epsilon = 1e-8  # Adam optimizer epsilon parameter
 
     # Gaussian parameters
-    initial_scale = 0.1  # Initial scale for Gaussian points
-    scale_modifier = 1.0  # Scaling factor for Gaussian splats
+    # initial_scale = 0.1  # Initial scale for Gaussian points
+    # scale_modifier = 1.0  # Scaling factor for Gaussian splats
+    initial_scale = 0.3
+    scale_modifier = 3.0
     sh_degree = 3  # Spherical harmonics degree
 
     # Scene parameters
