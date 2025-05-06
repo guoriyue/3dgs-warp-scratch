@@ -668,14 +668,20 @@ class NeRFGaussianSplattingTrainer:
                 wp.copy(self.grads['opacities'], gradients['dL_dopacity'])
                 wp.copy(self.grads['shs'], gradients['dL_dshs'])
 
-                print("self.grads['positions']", self.grads['positions'])
-                print("self.grads['scales']", self.grads['scales'])
-                print("self.grads['rotations']", self.grads['rotations'])
-                print("self.grads['opacities']", self.grads['opacities'])
-                print("self.grads['shs']", self.grads['shs'])
-                print("Rendered image mean:", wp.to_torch(rendered_image).mean().item())
-                print("Pixel gradient mean:", wp.to_torch(pixel_grad_buffer).abs().mean())
+                # Convert Warp arrays to numpy for statistics
+                pos_np = self.grads['positions'].numpy()
+                scales_np = self.grads['scales'].numpy()
+                rot_np = self.grads['rotations'].numpy()
+                opac_np = self.grads['opacities'].numpy()
+                shs_np = self.grads['shs'].numpy()
                 
+                print("self.grads['positions']", self.grads['positions'], np.max(pos_np), np.min(pos_np))
+                print("self.grads['scales']", self.grads['scales'], np.max(scales_np), np.min(scales_np))
+                print("self.grads['rotations']", self.grads['rotations'], np.max(rot_np), np.min(rot_np))
+                print("self.grads['opacities']", self.grads['opacities'], np.max(opac_np), np.min(opac_np))
+                print("self.grads['shs']", self.grads['shs'], np.max(shs_np), np.min(shs_np))
+                print("Rendered image mean:", wp.to_torch(rendered_image).mean().item(), wp.to_torch(rendered_image).max().item(), wp.to_torch(rendered_image).min().item())
+                print("Pixel gradient mean:", wp.to_torch(pixel_grad_buffer).abs().mean(), wp.to_torch(pixel_grad_buffer).abs().max(), wp.to_torch(pixel_grad_buffer).abs().min())
                 
                 exit()
                 # Update parameters

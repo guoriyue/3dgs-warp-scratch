@@ -63,7 +63,6 @@ def sh_backward_kernel(
 ):
     idx = wp.tid()
     
-    print(idx)
     if idx >= num_points or radii[idx] <= 0: # Skip if not rendered
         return
 
@@ -73,14 +72,12 @@ def sh_backward_kernel(
     # --- Recompute view direction ---
     dir_orig = mean - campos
     dir_len = wp.length(dir_orig)
-    print(dir_len)
     # Skip if direction length is too small (matches CUDA implementation)
     if dir_len < 1e-8:
         return
         
     # Normalize direction
     dir = dir_orig / dir_len
-    print(dir)
     x = dir[0]; y = dir[1]; z = dir[2]
 
     # --- Apply clamping mask to input gradient ---
@@ -257,7 +254,9 @@ def compute_cov2d_backward_kernel(
     mean = means[idx]
     cov3D_packed = cov3Ds[idx] # VEC6
     dL_dconic = dL_dconics[idx] # Gradient w.r.t conic
-
+    print(mean)
+    print(cov3D_packed)
+    print(dL_dconic)
     # 1. Transform means to view space 't'
     t = wp.transform_point(view_matrix, mean) # Affine transform
 
@@ -265,11 +264,11 @@ def compute_cov2d_backward_kernel(
     limx = 1.3 * tan_fovx
     limy = 1.3 * tan_fovy
     tz = t[2]
-    # Need to handle tz <= 0 case
-    if tz <= 0.0:
-        dL_dcov3Ds[idx] = VEC6(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-        return # Cannot compute gradient if point is behind camera
-
+    # Need to handle points that are too close to or behind the camera
+    # In a typical setup where camera looks down -z, points in front have tz < 0
+    if wp.abs(tz) <= 0.2:  # Too close to camera plane
+        return # Cannot compute gradient if point is too close to camera
+    
     inv_tz = 1.0 / tz
     txtz = t[0] * inv_tz
     tytz = t[1] * inv_tz
@@ -771,7 +770,6 @@ def backward_preprocess(
     """
     # Create buffer for 3D covariance gradients
     dL_dcov3D = wp.zeros(num_points, dtype=VEC6, device=DEVICE)
-    print("before compute_cov2d_backward_kernel")
     # Step 1: Compute gradients for 2D covariance (conic matrix)
     # This also computes gradients w.r.t. 3D means due to conic computation
     wp.launch(
@@ -793,7 +791,6 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
-    print("after compute_cov2d_backward_kernel")
     # Step 2: Compute gradients for 3D means due to projection
     wp.launch(
         kernel=compute_projection_backward_kernel,
@@ -808,7 +805,6 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
-    print("after compute_projection_backward_kernel")
     # Step 3: Compute gradients for SH coefficients
     wp.launch(
         kernel=sh_backward_kernel,
@@ -828,7 +824,6 @@ def backward_preprocess(
         
         device=DEVICE
     )
-    print("after sh_backward_kernel")
     # Step 4: Compute gradients for scales and rotations
     wp.launch(
         kernel=compute_cov3d_backward_kernel,
@@ -845,7 +840,11 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
-    print("after compute_cov3d_backward_kernel")
+    print("================================================")
+    print("dL_dmeans", dL_dmeans)
+    print("dL_dsh", dL_dsh)
+    print("dL_dscales", dL_dscales)
+    print("dL_drots", dL_drots)
     return dL_dmeans, dL_dsh, dL_dscales, dL_drots
 
 def backward_render(

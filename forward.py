@@ -19,7 +19,6 @@ def get_rect(p: wp.vec2, max_radius: float, tile_grid: wp.vec3):
     grid_size_x = tile_grid[0]
     grid_size_y = tile_grid[1]
 
-    # Calculate rectangle bounds matching CUDA implementation
     rect_min_x = wp.min(wp.int32(grid_size_x), wp.int32(wp.max(wp.int32(0), wp.int32((p[0] - max_radius) / float(TILE_M)))))
     rect_min_y = wp.min(wp.int32(grid_size_y), wp.int32(wp.max(wp.int32(0), wp.int32((p[1] - max_radius) / float(TILE_N)))))
     
@@ -55,7 +54,7 @@ def compute_cov2d(p_orig: wp.vec3, cov3d: VEC6, view_matrix: wp.mat44,
         view_matrix[1, 0], view_matrix[1, 1], view_matrix[1, 2],
         view_matrix[2, 0], view_matrix[2, 1], view_matrix[2, 2]
     )
-    # Change order of multiplication to match CUDA reference implementation
+    
     T = W * J
     
     Vrk = wp.mat33(
@@ -138,8 +137,7 @@ def wp_preprocess(
     
     p_view = in_frustum(p_orig, view_matrix)
     
-    if p_view[2] <= 0.2 and p_view[2] >= -0.2:
-        # absolute value of p_view[2]
+    if wp.abs(p_view[2]) <= 0.2:  # Points too close to camera plane (handles both +z and -z camera directions)
         return
     
     p_hom = wp.vec4(p_view[0], p_view[1], p_view[2], 1.0)
