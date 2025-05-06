@@ -580,7 +580,6 @@ class NeRFGaussianSplattingTrainer:
                 
   
 
-                # exit()
                 # Calculate L1 loss
                 l1_val = l1_loss(rendered_image, target_image)
                 
@@ -608,7 +607,8 @@ class NeRFGaussianSplattingTrainer:
                     'radii': self.intermediate_buffers['radii'],
                     'means2D': self.intermediate_buffers['points_xy_image'],
                     'conic_opacity': self.intermediate_buffers['conic_opacity'],
-                    'rgb': self.intermediate_buffers['rgb']
+                    'rgb': self.intermediate_buffers['rgb'],
+                    'clamped': self.intermediate_buffers['clamped_state']
                 }
                 
                 binning_buffer = {
@@ -677,7 +677,6 @@ class NeRFGaussianSplattingTrainer:
                 print("Pixel gradient mean:", wp.to_torch(pixel_grad_buffer).abs().mean())
                 
                 
-
                 exit()
                 # Update parameters
                 self.optimizer_step(iteration)

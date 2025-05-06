@@ -31,87 +31,6 @@ def get_rect(p: wp.vec2, max_radius: float, tile_grid: wp.vec3):
 
 
 @wp.func
-def compute_color_from_sh(
-    idx: int,
-    points: wp.array(dtype=wp.vec3),
-    campos: wp.vec3,
-    shs: wp.array(dtype=wp.vec3),
-    degree: int,
-    clamped: bool
-) -> wp.vec3:
-    """Compute colors from spherical harmonics coefficients.
-    
-    Args:
-        idx: Index of the point (Gaussian)
-        points: Array of 3D positions
-        campos: Camera position
-        shs: Array of SH coefficients, flattened from (n, 16, 3) to (n*16, 3)
-        degree: Degree of SH to compute (0, 1, 2, or 3)
-        clamped: Whether to clamp colors to [0,1]
-        
-    Returns:
-        RGB color as vec3
-    """
-    # SH constants
-    SH_C0 = 0.28209479177387814
-    SH_C1 = 0.4886025119029199
-    
-    # Calculate view direction
-    pos = points[idx]
-    dir_orig = pos - campos
-    dir = wp.normalize(dir_orig)
-    x, y, z = dir[0], dir[1], dir[2]
-    
-    # Base offset for this Gaussian's SH coefficients
-    base_idx = idx * 16  # assuming degree 3 (16 coefficients)
-    
-    # Start with the DC component (degree 0)
-    result = SH_C0 * shs[base_idx]
-    
-    # Add higher degree terms if requested
-    if degree > 0:
-        # Degree 1 terms
-        result = result - SH_C1 * y * shs[base_idx + 1] + SH_C1 * z * shs[base_idx + 2] - SH_C1 * x * shs[base_idx + 3]
-        
-        if degree > 1:
-            # Degree 2 terms
-            xx = x*x
-            yy = y*y
-            zz = z*z
-            xy = x*y
-            yz = y*z
-            xz = x*z
-            
-            # Degree 2 terms with hardcoded constants
-            result = result + 1.0925484305920792 * xy * shs[base_idx + 4] 
-            result = result + (-1.0925484305920792) * yz * shs[base_idx + 5]
-            result = result + 0.31539156525252005 * (2.0 * zz - xx - yy) * shs[base_idx + 6]
-            result = result + (-1.0925484305920792) * xz * shs[base_idx + 7]
-            result = result + 0.5462742152960396 * (xx - yy) * shs[base_idx + 8]
-                   
-            if degree > 2:
-                # Degree 3 terms with hardcoded constants
-                result = result + (-0.5900435899266435) * y * (3.0 * xx - yy) * shs[base_idx + 9]
-                result = result + 2.890611442640554 * xy * z * shs[base_idx + 10]
-                result = result + (-0.4570457994644658) * y * (4.0 * zz - xx - yy) * shs[base_idx + 11]
-                result = result + 0.3731763325901154 * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * shs[base_idx + 12]
-                result = result + (-0.4570457994644658) * x * (4.0 * zz - xx - yy) * shs[base_idx + 13]
-                result = result + 1.445305721320277 * z * (xx - yy) * shs[base_idx + 14]
-                result = result + (-0.5900435899266435) * x * (xx - 3.0 * yy) * shs[base_idx + 15]
-    
-    result = result + wp.vec3(0.5, 0.5, 0.5)
-    
-    if clamped:
-        # RGB colors are clamped to positive values
-        result = wp.vec3(
-            wp.max(result[0], 0.0),
-            wp.max(result[1], 0.0),
-            wp.max(result[2], 0.0)
-        )
-    
-    return result
-
-@wp.func
 def compute_cov2d(p_orig: wp.vec3, cov3d: VEC6, view_matrix: wp.mat44, 
                  tan_fovx: float, tan_fovy: float, width: float, height: float) -> wp.vec3:
     t = wp.transform_point(view_matrix, p_orig)
@@ -206,6 +125,7 @@ def wp_preprocess(
     conic_opacity: wp.array(dtype=wp.vec4),
     tile_grid: wp.vec3,
     tiles_touched: wp.array(dtype=int),
+    clamped_state: wp.array(dtype=wp.vec3),
     
     prefiltered: bool,
     antialiasing: bool
@@ -272,8 +192,75 @@ def wp_preprocess(
     # Skip if rectangle has 0 area
     if (rect_max_x - rect_min_x) * (rect_max_y - rect_min_y) == 0:
         return
+    
     # Compute color from spherical harmonics
-    result = compute_color_from_sh(i, orig_points, cam_pos, shs, 3, clamped)
+    pos = p_orig
+    dir_orig = pos - cam_pos
+    dir = wp.normalize(dir_orig)
+    x, y, z = dir[0], dir[1], dir[2]
+    
+    # Base offset for this Gaussian's SH coefficients
+    base_idx = i * 16  # assuming degree 3 (16 coefficients)
+    
+    # Start with the DC component (degree 0)
+    result = SH_C0 * shs[base_idx]
+    
+    # Add higher degree terms if requested
+    if degree > 0:
+        # Degree 1 terms
+        result = result - SH_C1 * y * shs[base_idx + 1] + SH_C1 * z * shs[base_idx + 2] - SH_C1 * x * shs[base_idx + 3]
+        
+        if degree > 1:
+            # Degree 2 terms
+            xx = x*x
+            yy = y*y
+            zz = z*z
+            xy = x*y
+            yz = y*z
+            xz = x*z
+            
+            # Degree 2 terms with hardcoded constants
+            result = result + 1.0925484305920792 * xy * shs[base_idx + 4] 
+            result = result + (-1.0925484305920792) * yz * shs[base_idx + 5]
+            result = result + 0.31539156525252005 * (2.0 * zz - xx - yy) * shs[base_idx + 6]
+            result = result + (-1.0925484305920792) * xz * shs[base_idx + 7]
+            result = result + 0.5462742152960396 * (xx - yy) * shs[base_idx + 8]
+                   
+            if degree > 2:
+                # Degree 3 terms with hardcoded constants
+                result = result + (-0.5900435899266435) * y * (3.0 * xx - yy) * shs[base_idx + 9]
+                result = result + 2.890611442640554 * xy * z * shs[base_idx + 10]
+                result = result + (-0.4570457994644658) * y * (4.0 * zz - xx - yy) * shs[base_idx + 11]
+                result = result + 0.3731763325901154 * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * shs[base_idx + 12]
+                result = result + (-0.4570457994644658) * x * (4.0 * zz - xx - yy) * shs[base_idx + 13]
+                result = result + 1.445305721320277 * z * (xx - yy) * shs[base_idx + 14]
+                result = result + (-0.5900435899266435) * x * (xx - 3.0 * yy) * shs[base_idx + 15]
+    
+    result = result + wp.vec3(0.5, 0.5, 0.5)
+    
+    # Track which color channels are clamped (using wp.vec3 instead of separate uint32 values)
+    # Store 1.0 if clamped, 0.0 if not clamped
+    # Use separate assignments instead of conditional expressions
+    r_clamped = 0.0
+    g_clamped = 0.0
+    b_clamped = 0.0
+    
+    if result[0] < 0.0:
+        r_clamped = 1.0
+    if result[1] < 0.0:
+        g_clamped = 1.0
+    if result[2] < 0.0:
+        b_clamped = 1.0
+        
+    clamped_state[i] = wp.vec3(r_clamped, g_clamped, b_clamped)
+    
+    if clamped:
+        # RGB colors are clamped to positive values
+        result = wp.vec3(
+            wp.max(result[0], 0.0),
+            wp.max(result[1], 0.0),
+            wp.max(result[2], 0.0)
+        )
 
     rgb[i] = result
     
@@ -656,6 +643,8 @@ def render_gaussians(
     conic_opacity = wp.zeros(num_points, dtype=wp.vec4, device=DEVICE)
     tiles_touched = wp.zeros(num_points, dtype=int, device=DEVICE)
     
+    # Add clamped_state buffer to track which color channels are clamped
+    clamped_state = wp.zeros(num_points, dtype=wp.vec3, device=DEVICE)
     
     if debug:
         print(f"\nWARP RENDERING: {image_width}x{image_height} image, {num_points} gaussians")
@@ -692,6 +681,7 @@ def render_gaussians(
             conic_opacity,             # conic_opacity
             tile_grid,                 # tile_grid
             tiles_touched,             # tiles_touched
+            clamped_state,             # clamped_state - now using wp.vec3
             prefiltered,               # prefiltered
             antialiasing               # antialiasing
         ],
@@ -830,5 +820,6 @@ def render_gaussians(
         "ranges": ranges,
         "final_Ts": final_Ts,  # Add final_Ts to intermediate buffers
         "n_contrib": n_contrib,  # Add contributor count to intermediate buffers
-        "depth": depth_image  # Add depth image to the intermediate buffers
+        "depth": depth_image,  # Add depth image to the intermediate buffers
+        "clamped_state": clamped_state  # Add clamped state to intermediate buffers
     }

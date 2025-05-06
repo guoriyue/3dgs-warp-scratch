@@ -54,7 +54,7 @@ def sh_backward_kernel(
     shs: wp.array(dtype=wp.vec3),        # Flattened SH coeffs (N * 16, 3)
     radii: wp.array(dtype=int),          # Radii computed in forward (N,) - used for skipping
     campos: wp.vec3,                     # Camera position (3,)
-    clamped_state: wp.array(dtype=wp.uint32), # Clamping state {0,1} from forward pass (N * 3)
+    clamped_state: wp.array(dtype=wp.vec3), # Clamping state {0,1} from forward pass (N, 3)
     dL_dcolor: wp.array(dtype=wp.vec3),   # Grad L w.r.t. *final* gaussian color (N, 3)
 
     # --- Outputs (Accumulate) ---
@@ -63,6 +63,7 @@ def sh_backward_kernel(
 ):
     idx = wp.tid()
     
+    print(idx)
     if idx >= num_points or radii[idx] <= 0: # Skip if not rendered
         return
 
@@ -72,34 +73,21 @@ def sh_backward_kernel(
     # --- Recompute view direction ---
     dir_orig = mean - campos
     dir_len = wp.length(dir_orig)
-    
+    print(dir_len)
     # Skip if direction length is too small (matches CUDA implementation)
     if dir_len < 1e-8:
         return
         
     # Normalize direction
     dir = dir_orig / dir_len
+    print(dir)
     x = dir[0]; y = dir[1]; z = dir[2]
 
     # --- Apply clamping mask to input gradient ---
-    # Get clamping state for each color channel (0 = not clamped, 1 = clamped)
-    r_clamped = clamped_state[idx * 3]
-    g_clamped = clamped_state[idx * 3 + 1]
-    b_clamped = clamped_state[idx * 3 + 2]
-    
-    # Create clamping mask (1.0 for not clamped, 0.0 for clamped)
-    clamping_mask = wp.vec3(
-        1.0 - float(r_clamped),
-        1.0 - float(g_clamped),
-        1.0 - float(b_clamped)
-    )
-    
-    # Apply clamping mask to gradient
-    dL_dRGB = wp.vec3(
-        dL_dcolor[idx][0] * clamping_mask[0],
-        dL_dcolor[idx][1] * clamping_mask[1],
-        dL_dcolor[idx][2] * clamping_mask[2]
-    )
+    # In CUDA: dL_dRGB.x *= clamped[3 * idx + 0] ? 0 : 1;
+    # Here we use: 1.0 - clamped_state which gives 0 for clamped, 1 for not clamped
+    dL_dRGB = dL_dcolor[idx]
+    dL_dRGB = wp_vec3_mul_element(dL_dRGB, wp_vec3_add_element(wp.vec3(1.0, 1.0, 1.0), -1.0 * clamped_state[idx]))
 
     # Initialize gradients w.r.t. direction components (dRawColor/ddir)
     dRGBdx = wp.vec3(0.0, 0.0, 0.0)
@@ -759,7 +747,7 @@ def backward_preprocess(
     # Intermediate data from forward
     cov3d: wp.array(dtype=wp.mat33),         # 3D covariance matrices (or VEC6 depending on packing)
     conic_opacity: wp.array(dtype=wp.vec4),  # 2D conics and opacity
-    campos: wp.vec3,                         # Camera position
+    campos: wp.array(dtype=wp.vec3),        # View directions (should be campos)
     clamped: wp.array(dtype=wp.uint32),      # Clamping states
     
     # Incoming gradients from render backward
@@ -783,7 +771,7 @@ def backward_preprocess(
     """
     # Create buffer for 3D covariance gradients
     dL_dcov3D = wp.zeros(num_points, dtype=VEC6, device=DEVICE)
-    
+    print("before compute_cov2d_backward_kernel")
     # Step 1: Compute gradients for 2D covariance (conic matrix)
     # This also computes gradients w.r.t. 3D means due to conic computation
     wp.launch(
@@ -805,7 +793,7 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
-    
+    print("after compute_cov2d_backward_kernel")
     # Step 2: Compute gradients for 3D means due to projection
     wp.launch(
         kernel=compute_projection_backward_kernel,
@@ -820,7 +808,7 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
-    
+    print("after compute_projection_backward_kernel")
     # Step 3: Compute gradients for SH coefficients
     wp.launch(
         kernel=sh_backward_kernel,
@@ -840,7 +828,7 @@ def backward_preprocess(
         
         device=DEVICE
     )
-    
+    print("after sh_backward_kernel")
     # Step 4: Compute gradients for scales and rotations
     wp.launch(
         kernel=compute_cov3d_backward_kernel,
@@ -857,7 +845,7 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
-    
+    print("after compute_cov3d_backward_kernel")
     return dL_dmeans, dL_dsh, dL_dscales, dL_drots
 
 def backward_render(
@@ -987,7 +975,7 @@ def backward(
         means2D: 2D projected positions from forward pass (N, 2)
         conic_opacity: Conic matrices + opacity from forward pass (N, 4)
         rgb: RGB colors from forward pass (N, 3)
-        clamped: Clamping state from forward pass (N*3, uint32)
+        clamped: Clamping state from forward pass (N, 3)
         depth: Depth values from forward pass (N,)
         geom_buffer: Dictionary holding geometric state
         binning_buffer: Dictionary holding binning state
@@ -1061,9 +1049,6 @@ def backward(
     projmatrix_warp = projmatrix if isinstance(projmatrix, wp.mat44) else wp.mat44(projmatrix.flatten())
     campos_warp = campos if isinstance(campos, wp.vec3) else wp.vec3(campos[0], campos[1], campos[2])
     
-    # Handle clamped state
-    clamped_warp = to_warp_array(clamped, wp.uint32) if clamped is not None else wp.zeros(num_points * 3, dtype=wp.uint32, device=DEVICE)
-    
     # --- Extract data from buffer dictionaries if provided ---
     if img_buffer is not None:
         ranges = img_buffer.get('ranges')
@@ -1083,14 +1068,15 @@ def backward(
             conic_opacity = geom_buffer.get('conic_opacity')
         if rgb is None:
             rgb = geom_buffer.get('rgb')
-        if clamped is None and 'clamped' in geom_buffer:
-            clamped_warp = geom_buffer.get('clamped')
+        if clamped is None:
+            clamped = geom_buffer.get('clamped_state')
     
     # Convert forward pass outputs to warp arrays if they're not already
     radii_warp = to_warp_array(radii, int) if radii is not None else None
     means2D_warp = to_warp_array(means2D, wp.vec2) if means2D is not None else None
     conic_opacity_warp = to_warp_array(conic_opacity, wp.vec4) if conic_opacity is not None else None
     rgb_warp = to_warp_array(rgb, wp.vec3) if rgb is not None else None
+    clamped_warp = to_warp_array(clamped, wp.uint32) if clamped is not None else None
     
     # --- Initialize output gradient arrays ---
     dL_dmean2D = wp.zeros(num_points, dtype=wp.vec2, device=DEVICE)
