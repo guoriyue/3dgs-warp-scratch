@@ -368,8 +368,6 @@ class NeRFGaussianSplattingTrainer:
 
         xy_image = np.stack([x_img, y_img], axis=1)  # (N, 2)
 
-        print("projected xy min/max", xy_image.min(0), xy_image.max(0))
-        print("depth min/max", depth.min(), depth.max())
         return xy_image, depth
 
 
@@ -384,54 +382,8 @@ class NeRFGaussianSplattingTrainer:
         opacities_np = self.params['opacities'].numpy()
         shs_np = self.params['shs'].numpy()
         
-        print("positions_np", positions_np)
-        print("scales_np", scales_np)
-        print("rotations_np", rotations_np)
-        print("opacities_np", opacities_np)
-        print("shs_np", shs_np)
-        print("camera['view_matrix']", camera['view_matrix'])
-        print("camera['proj_matrix']", camera['proj_matrix'])
-        print("camera['tan_fovx']", camera['tan_fovx'])
-        print("camera['tan_fovy']", camera['tan_fovy'])
-        print("camera['height']", camera['height'])
-        print("camera['width']", camera['width'])
-        
-        # print("Sample Gaussian:", positions[0])
-        print("Camera center:", camera['camera_pos'])
-        print("Camera forward:", -camera['R'][:, 2])  # NeRF camera faces -Z
-        print("Focal length (pixels):", camera['focal_x'])
-        print("Projection matrix:\n", camera['proj_matrix'])
-        print("View matrix:\n", camera['view_matrix'])
+        # xy, depth = self.project_points(test_gaussians, test_view, test_proj, camera['width'], camera['height'])
 
-
-        print("self.config['scale_modifier']", self.config['scale_modifier'])
-        print("self.config['sh_degree']", self.config['sh_degree'])
-        print("camera['camera_pos']", camera['camera_pos'])
-        print("prefiltered", False)
-        print("antialiasing", True)
-        print("clamped", True)
-        print("background", np.array(self.config['background_color'], dtype=np.float32))
-        
-        
-        
-        # 画出所有 camera center
-        camera_center, init_center = self.compute_initialization_center()
-
-        print("All camera centers min/max:", camera_center.min(0), camera_center.max(0))
-        print("Gaussian init center:", init_center)
-
-        # 加一个 sanity check projection
-        test_view = camera['view_matrix']
-        test_proj = camera['proj_matrix']
-        test_gaussians = np.random.normal(loc=init_center, scale=0.1, size=(100, 3))
-        
-        xy, depth = self.project_points(test_gaussians, test_view, test_proj, camera['width'], camera['height'])
-
-
-        
-        
-
-        
         # Render using the warp renderer
         return render_gaussians(
             background=np.array(self.config['background_color'], dtype=np.float32),
@@ -619,27 +571,14 @@ class NeRFGaussianSplattingTrainer:
                 # Render the view
                 rendered_image, depth_image, self.intermediate_buffers = self.render_view(camera_idx)
 
-                # save rendered image for debug
-                # Convert to uint8 format before saving to avoid the data type error
-                rendered_uint8 = (np.clip(rendered_image, 0, 1) * 255).astype(np.uint8)
-                target_uint8 = (np.clip(target_image, 0, 1) * 255).astype(np.uint8)
-                imageio.imwrite(self.output_path / "train_rendered_image.png", rendered_uint8)
-                imageio.imwrite(self.output_path / "train_target_image.png", target_uint8)
+                # # save rendered image for debug
+                # # Convert to uint8 format before saving to avoid the data type error
+                # rendered_uint8 = (np.clip(rendered_image, 0, 1) * 255).astype(np.uint8)
+                # target_uint8 = (np.clip(target_image, 0, 1) * 255).astype(np.uint8)
+                # imageio.imwrite(self.output_path / "train_rendered_image.png", rendered_uint8)
+                # imageio.imwrite(self.output_path / "train_target_image.png", target_uint8)
                 
-                
-                print("n_contrib max:", np.max(self.intermediate_buffers['n_contrib']))
-                print("n_contrib min:", np.min(self.intermediate_buffers['n_contrib']))
-                print("self.intermediate_buffers['n_contrib']", self.intermediate_buffers['n_contrib'])
-                print("self.intermediate_buffers", self.intermediate_buffers)
-                xy = self.intermediate_buffers['points_xy_image']
-                print("Projected image coords min/max:", np.min(xy), np.max(xy))
-                
-                depth = self.intermediate_buffers['depth']
-                print("depth min/max:", np.min(depth), np.max(depth))
-                
-                print("conic_opacity min/max:", np.min(self.intermediate_buffers['conic_opacity']), np.max(self.intermediate_buffers['conic_opacity']))
-                
-
+  
 
                 # exit()
                 # Calculate L1 loss
@@ -682,7 +621,6 @@ class NeRFGaussianSplattingTrainer:
                     'n_contrib': self.intermediate_buffers['n_contrib']
                 }
                 
-                print("self.params['positions']", self.params['positions'])
                 gradients = backward(
                     # Core parameters
                     background=np.array(self.config['background_color'], dtype=np.float32),
@@ -711,6 +649,7 @@ class NeRFGaussianSplattingTrainer:
                     conic_opacity=self.intermediate_buffers['conic_opacity'],
                     rgb=self.intermediate_buffers['rgb'],
                     depth=self.intermediate_buffers['depth'],
+                    clamped=self.intermediate_buffers['clamped_state'],
                     
                     # Internal state buffers
                     geom_buffer=geom_buffer,
