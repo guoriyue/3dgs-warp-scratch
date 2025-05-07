@@ -175,6 +175,65 @@ def load_camera_from_json(input_path, camera_id=0):
         print(f"Error loading camera from cameras.json: {e}")
         return None
 
+class GaussianRenderer:
+    def __init__(self, params, cameras, config):
+        """Initialize the renderer with point cloud parameters and camera data.
+        
+        Args:
+            params: Dictionary containing point cloud parameters (positions, scales, rotations, etc.)
+            cameras: List of camera dictionaries containing view/projection matrices and parameters
+            config: Dictionary containing rendering configuration
+        """
+        self.params = params
+        self.cameras = cameras
+        self.config = config
+        
+    def render_view(self, camera_idx):
+        """Render a view from a specific camera using the current point cloud."""
+        camera = self.cameras[camera_idx]
+        
+        # Get point cloud data as numpy arrays
+        positions_np = self.params['positions'].numpy()
+        scales_np = self.params['scales'].numpy()
+        rotations_np = self.params['rotations'].numpy()
+        opacities_np = self.params['opacities'].numpy()
+        shs_np = self.params['shs'].numpy()
+        
+        # Flip z-axis direction for positions
+        positions_np = positions_np.copy()  # Create a copy to avoid modifying the original
+        positions_np[:, 2] = -positions_np[:, 2]  # Flip z coordinate
+
+        # Render using the warp renderer
+        return render_gaussians(
+            background=np.array(self.config['background_color'], dtype=np.float32),
+            means3D=positions_np,
+            colors=None,  # Use SH coefficients instead
+            opacity=opacities_np,
+            scales=scales_np,
+            rotations=rotations_np,
+            scale_modifier=self.config['scale_modifier'],
+            viewmatrix=camera['view_matrix'],
+            projmatrix=camera['proj_matrix'],
+            tan_fovx=camera['tan_fovx'],
+            tan_fovy=camera['tan_fovy'],
+            image_height=camera['height'],
+            image_width=camera['width'],
+            sh=shs_np,  # Pass SH coefficients
+            degree=self.config['sh_degree'],
+            campos=camera['camera_pos'],
+            prefiltered=False,
+            antialiasing=True,
+            clamped=True
+        )
+        
+    def render_all_views(self):
+        """Render all camera views and return the results."""
+        results = []
+        for i in range(len(self.cameras)):
+            rendered_image, depth_image, _ = self.render_view(i)
+            results.append((rendered_image, depth_image))
+        return results
+
 if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Render 3D Gaussians")

@@ -381,8 +381,6 @@ class NeRFGaussianSplattingTrainer:
         rotations_np = self.params['rotations'].numpy()
         opacities_np = self.params['opacities'].numpy()
         shs_np = self.params['shs'].numpy()
-        
-        # xy, depth = self.project_points(test_gaussians, test_view, test_proj, camera['width'], camera['height'])
 
         # Render using the warp renderer
         return render_gaussians(
