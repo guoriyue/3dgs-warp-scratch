@@ -249,14 +249,10 @@ def compute_cov2d_backward_kernel(
         # Zero out dL_dcov3Ds to ensure we don't keep old values
         dL_dcov3Ds[idx] = VEC6(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         return
-
     # --- Recompute intermediates from forward pass ---
     mean = means[idx]
     cov3D_packed = cov3Ds[idx] # VEC6
     dL_dconic = dL_dconics[idx] # Gradient w.r.t conic
-    print(mean)
-    print(cov3D_packed)
-    print(dL_dconic)
     # 1. Transform means to view space 't'
     t = wp.transform_point(view_matrix, mean) # Affine transform
 
@@ -744,7 +740,7 @@ def backward_preprocess(
     focal_y: float,
     
     # Intermediate data from forward
-    cov3d: wp.array(dtype=wp.mat33),         # 3D covariance matrices (or VEC6 depending on packing)
+    cov3Ds: wp.array(dtype=wp.mat33),         # 3D covariance matrices (or VEC6 depending on packing)
     conic_opacity: wp.array(dtype=wp.vec4),  # 2D conics and opacity
     campos: wp.array(dtype=wp.vec3),        # View directions (should be campos)
     clamped: wp.array(dtype=wp.uint32),      # Clamping states
@@ -778,7 +774,7 @@ def backward_preprocess(
         inputs=[
             num_points,            # P
             means,                 # means3D
-            cov3d,                 # cov3Ds
+            cov3Ds,                 # cov3Ds
             radii,                 # radii
             focal_x,               # focal_x
             focal_y,               # focal_y
@@ -791,6 +787,7 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
+    print("compute_cov2d_backward_kernel done")
     # Step 2: Compute gradients for 3D means due to projection
     wp.launch(
         kernel=compute_projection_backward_kernel,
@@ -805,6 +802,7 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
+    print("compute_projection_backward_kernel done")
     # Step 3: Compute gradients for SH coefficients
     wp.launch(
         kernel=sh_backward_kernel,
@@ -824,6 +822,7 @@ def backward_preprocess(
         
         device=DEVICE
     )
+    print("sh_backward_kernel done")
     # Step 4: Compute gradients for scales and rotations
     wp.launch(
         kernel=compute_cov3d_backward_kernel,
@@ -840,6 +839,7 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
+    print("compute_cov3d_backward_kernel done")
     print("================================================")
     print("dL_dmeans", dL_dmeans)
     print("dL_dsh", dL_dsh)
@@ -909,6 +909,7 @@ def backward_render(
             dL_dcolors
         ],
     )
+    print("wp_render_backward_kernel done")
 
 def backward(
     # --- Core parameters ---
@@ -937,6 +938,7 @@ def backward(
     rgb=None,
     clamped=None,
     depth=None,
+    cov3Ds=None,
     # --- Internal state buffers ---
     geom_buffer=None,
     binning_buffer=None,
@@ -1113,8 +1115,6 @@ def backward(
         dL_dopacity=dL_dopacity,
         dL_dcolors=dL_dcolor
     )
-    # Determine covariance pointer
-    cov3D_ptr = geom_buffer.get('cov3D') if geom_buffer is not None else None
     # --- Step 2: Compute gradients for 3D parameters ---
     backward_preprocess(
         num_points=num_points,
@@ -1130,7 +1130,7 @@ def backward(
         fov_y=tan_fovy,
         focal_x=focal_x,
         focal_y=focal_y,
-        cov3d=cov3D_ptr,
+        cov3Ds=cov3Ds,
         conic_opacity=conic_opacity_warp,
         campos=campos_warp,
         clamped=clamped_warp,

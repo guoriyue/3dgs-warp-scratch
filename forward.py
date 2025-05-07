@@ -813,6 +813,7 @@ def render_gaussians(
         "points_xy_image": points_xy_image,
         "depths": depths,
         "rgb": rgb,
+        "cov3Ds": cov3Ds,
         "conic_opacity": conic_opacity,
         "point_list": point_list,
         "ranges": ranges,
