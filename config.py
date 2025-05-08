@@ -76,11 +76,44 @@ class GaussianParams:
     background_color = [1.0, 1.0, 1.0]  # White background for NeRF synthetic
 
     # Loss parameters
-    # lambda_dssim = 0.2  # Weight for SSIM loss (1.0 means only SSIM, 0.0 means only L1)
-    lambda_dssim = 0.0
+    lambda_dssim = 0.0  # Weight for SSIM loss (1.0 means only SSIM, 0.0 means only L1)
+    
+    # Depth loss parameters
+    depth_l1_weight_init = 0.0  # Initial weight for depth L1 loss
+    depth_l1_weight_final = 0.0  # Final weight for depth L1 loss
+    depth_l1_delay_steps = 0  # Number of steps to delay depth loss
+    depth_l1_delay_mult = 0.0  # Multiplier for delay rate
     
     near = 0.01  # Default near clipping plane
     far = 100.0  # Default far clipping plane
+
+    @classmethod
+    def get_depth_l1_weight(cls, step):
+        """Compute the depth L1 loss weight for the current step.
+        
+        Args:
+            step (int): Current training step
+            
+        Returns:
+            float: Weight for depth L1 loss
+        """
+        if step < 0 or (cls.depth_l1_weight_init == 0.0 and cls.depth_l1_weight_final == 0.0):
+            # Disable depth loss
+            return 0.0
+            
+        if cls.depth_l1_delay_steps > 0:
+            # A kind of reverse cosine decay
+            delay_rate = cls.depth_l1_delay_mult + (1 - cls.depth_l1_delay_mult) * np.sin(
+                0.5 * np.pi * np.clip(step / cls.depth_l1_delay_steps, 0, 1)
+            )
+        else:
+            delay_rate = 1.0
+            
+        # Logarithmic interpolation between initial and final weights
+        t = np.clip(step / cls.num_iterations, 0, 1)
+        log_lerp = np.exp(np.log(cls.depth_l1_weight_init) * (1 - t) + np.log(cls.depth_l1_weight_final) * t)
+        
+        return delay_rate * log_lerp
 
     @classmethod
     def update(cls, **kwargs):
@@ -111,6 +144,10 @@ class GaussianParams:
             'scene_scale': cls.scene_scale,
             'near': cls.near,
             'far': cls.far,
-            'lambda_dssim': cls.lambda_dssim
+            'lambda_dssim': cls.lambda_dssim,
+            'depth_l1_weight_init': cls.depth_l1_weight_init,
+            'depth_l1_weight_final': cls.depth_l1_weight_final,
+            'depth_l1_delay_steps': cls.depth_l1_delay_steps,
+            'depth_l1_delay_mult': cls.depth_l1_delay_mult
         }
 

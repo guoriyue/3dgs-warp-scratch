@@ -119,7 +119,7 @@ def wp_preprocess(
     radii: wp.array(dtype=int),
     points_xy_image: wp.array(dtype=wp.vec2),
     depths: wp.array(dtype=float),
-    # cov3Ds: wp.array(dtype=VEC6),
+    cov3Ds: wp.array(dtype=VEC6),
     rgb: wp.array(dtype=wp.vec3),
     conic_opacity: wp.array(dtype=wp.vec4),
     tile_grid: wp.vec3,
@@ -148,7 +148,7 @@ def wp_preprocess(
     
     
     cov3d = compute_cov3d(scales[i], scale_modifier, rotations[i])
-    
+    cov3Ds[i] = cov3d
     # Compute 2D covariance matrix
     cov2d = compute_cov2d(p_orig, cov3d, view_matrix, tan_fovx, tan_fovy, float(W), float(H))
     
@@ -674,7 +674,7 @@ def render_gaussians(
             radii,                     # radii
             points_xy_image,           # points_xy_image
             depths,                    # depths
-            # cov3Ds,                    # cov3Ds
+            cov3Ds,                    # cov3Ds
             rgb,                       # rgb
             conic_opacity,             # conic_opacity
             tile_grid,                 # tile_grid

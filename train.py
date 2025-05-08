@@ -7,13 +7,14 @@ import json
 from tqdm import tqdm
 from pathlib import Path
 import argparse
+import cv2
 
 # Import the renderer and constants
 from forward import render_gaussians
 from backward import backward, densify_gaussians, prune_gaussians, adam_update
 from config import *
 from utils import *
-from loss import l1_loss, ssim, compute_image_gradients
+from loss import l1_loss, ssim, compute_image_gradients, depth_loss
                     
 # Initialize Warp
 wp.init()
@@ -300,6 +301,7 @@ class NeRFGaussianSplattingTrainer:
             tan_fovx = np.tan(fovx * 0.5)
             tan_fovy = np.tan(fovy * 0.5)
             
+            # Initialize camera dictionary
             camera = {
                 'id': i,
                 'camera_pos': position,
@@ -311,7 +313,10 @@ class NeRFGaussianSplattingTrainer:
                 'focal_x': focal,
                 'focal_y': focal,
                 'width': width,
-                'height': height
+                'height': height,
+                'depth_reliable': False,  # Initialize depth reliability flag
+                'invdepthmap': None,      # Initialize inverse depth map
+                'depth_mask': None        # Initialize depth mask
             }
             
             cameras.append(camera)
@@ -383,7 +388,7 @@ class NeRFGaussianSplattingTrainer:
         shs_np = self.params['shs'].numpy()
 
         # Render using the warp renderer
-        return render_gaussians(
+        rendered_image, depth_image, intermediate_buffers = render_gaussians(
             background=np.array(self.config['background_color'], dtype=np.float32),
             means3D=positions_np,
             colors=None,  # Use SH coefficients instead
@@ -404,6 +409,8 @@ class NeRFGaussianSplattingTrainer:
             antialiasing=True,
             clamped=True
         )
+
+        return rendered_image, depth_image, intermediate_buffers
 
     def zero_grad(self):
         """Zero out all gradients."""
@@ -589,6 +596,7 @@ class NeRFGaussianSplattingTrainer:
                 # loss = (1 - λ) * L1 + λ * (1 - SSIM)
                 loss = (1.0 - lambda_dssim) * l1_val + lambda_dssim * (1.0 - ssim_val)
                 self.losses.append(loss)
+                
                 # Compute pixel gradients for image loss (dL/dColor)
                 pixel_grad_buffer = compute_image_gradients(
                     rendered_image, target_image, lambda_dssim=lambda_dssim
@@ -624,6 +632,7 @@ class NeRFGaussianSplattingTrainer:
                     background=np.array(self.config['background_color'], dtype=np.float32),
                     means3D=self.params['positions'],
                     dL_dpixels=pixel_grad_buffer,
+                    # dL_invdepths=depth_grad_buffer,  # Pass depth gradients
                     
                     # Model parameters (pass directly from self.params)
                     opacity=self.params['opacities'],

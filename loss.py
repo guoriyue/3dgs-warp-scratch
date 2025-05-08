@@ -243,3 +243,61 @@ def compute_image_gradients(rendered, target, lambda_dssim=0.2):
     # TODO: Add SSIM gradient
     
     return pixel_grad
+
+@wp.kernel
+def depth_loss_kernel(
+    rendered_depth: wp.array2d(dtype=float),
+    target_depth: wp.array2d(dtype=float),
+    depth_mask: wp.array2d(dtype=float),
+    loss_buffer: wp.array(dtype=float),
+    width: int,
+    height: int
+):
+    i, j = wp.tid()
+    if i >= width or j >= height:
+        return
+    
+    # Get depths and mask
+    rendered_inv_depth = rendered_depth[j, i]
+    target_inv_depth = target_depth[j, i]
+    mask = depth_mask[j, i]
+    
+    # Compute L1 difference for inverse depths
+    diff = wp.abs(rendered_inv_depth - target_inv_depth) * mask
+    
+    # Atomic add to loss buffer
+    wp.atomic_add(loss_buffer, 0, diff)
+
+def depth_loss(rendered_depth, target_depth, depth_mask):
+    """Compute L1 loss between rendered and target inverse depths"""
+    height, width = rendered_depth.shape[0], rendered_depth.shape[1]
+    
+    # Create device arrays if not already
+    if not isinstance(rendered_depth, wp.array):
+        d_rendered_depth = wp.array(rendered_depth, dtype=float, device=DEVICE)
+    else:
+        d_rendered_depth = rendered_depth
+    
+    if not isinstance(target_depth, wp.array):
+        d_target_depth = wp.array(target_depth, dtype=float, device=DEVICE)
+    else:
+        d_target_depth = target_depth
+        
+    if not isinstance(depth_mask, wp.array):
+        d_depth_mask = wp.array(depth_mask, dtype=float, device=DEVICE)
+    else:
+        d_depth_mask = depth_mask
+    
+    # Create loss buffer
+    loss_buffer = wp.zeros(1, dtype=float, device=DEVICE)
+    
+    # Compute loss
+    wp.launch(
+        kernel=depth_loss_kernel,
+        dim=(width, height),
+        inputs=[d_rendered_depth, d_target_depth, d_depth_mask, loss_buffer, width, height]
+    )
+    
+    # Get loss value
+    loss = float(loss_buffer.numpy()[0]) / (width * height)  # Normalize by pixel count
+    return loss
