@@ -569,10 +569,10 @@ def wp_render_backward_kernel(
     # Initialize working variables
     T = T_final  # Current accumulated transparency
     accum_rec = wp.vec3(0.0, 0.0, 0.0)  # Accumulated color
-    accum_invdepth_rec = 0.0  # Accumulated inverse depth
-    last_alpha = 0.0  # Alpha from the last processed Gaussian
+    accum_invdepth_rec = float(0.0)  # Accumulated inverse depth
+    last_alpha = float(0.0)  # Alpha from the last processed Gaussian
     last_color = wp.vec3(0.0, 0.0, 0.0)  # Color from the last processed Gaussian
-    last_invdepth = 0.0  # Inverse depth from the last processed Gaussian
+    last_invdepth = float(0.0)  # Inverse depth from the last processed Gaussian
     
     # Get gradients
     dL_dpixel = dL_dpixels[pix_y, pix_x]
@@ -584,6 +584,7 @@ def wp_render_backward_kernel(
     # Gradient of pixel coordinate w.r.t. normalized screen-space coordinates
     ddelx_dx = 0.5 * float(W)
     ddely_dy = 0.5 * float(H)
+    
     
     # Process Gaussians in back-to-front order
     for i in range(range_end - 1, range_start - 1, -1):
@@ -637,7 +638,7 @@ def wp_render_backward_kernel(
         last_color = color
         
         # Handle depth gradients if enabled
-        if dL_invdepths is not None:
+        if use_depth:
             invd = 1.0 / depth
             accum_invdepth_rec = last_alpha * last_invdepth + (1.0 - last_alpha) * accum_invdepth_rec
             last_invdepth = invd
@@ -904,7 +905,7 @@ def backward_render(
     # Calculate tile grid dimensions
     tile_grid_x = (width + TILE_M - 1) // TILE_M
     tile_grid_y = (height + TILE_N - 1) // TILE_N
-    
+
     # Launch the backward rendering kernel
     wp.launch(
         kernel=wp_render_backward_kernel,

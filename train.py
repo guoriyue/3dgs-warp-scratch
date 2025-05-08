@@ -656,7 +656,7 @@ class NeRFGaussianSplattingTrainer:
                     means2D=self.intermediate_buffers['points_xy_image'],
                     conic_opacity=self.intermediate_buffers['conic_opacity'],
                     rgb=self.intermediate_buffers['rgb'],
-                    depth=self.intermediate_buffers['depth'],
+                    depth=self.intermediate_buffers['depths'],
                     cov3Ds=self.intermediate_buffers['cov3Ds'],
                     clamped=self.intermediate_buffers['clamped_state'],
                     
