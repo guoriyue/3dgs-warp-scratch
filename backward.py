@@ -525,6 +525,7 @@ def wp_render_backward_kernel(
     n_contrib: wp.array2d(dtype=int),       # Number of Gaussians contributing to each pixel
     dL_dpixels: wp.array2d(dtype=wp.vec3),  # Gradient of loss w.r.t. output pixels
     dL_invdepths: wp.array2d(dtype=float),  # Gradient of loss w.r.t. inverse depths
+    use_depth: bool,
     
     # --- Outputs ---
     dL_dmean2D: wp.array(dtype=wp.vec2),    # Gradient w.r.t. 2D mean positions
@@ -575,7 +576,10 @@ def wp_render_backward_kernel(
     
     # Get gradients
     dL_dpixel = dL_dpixels[pix_y, pix_x]
-    dL_invdepth = dL_invdepths[pix_y, pix_x] if dL_invdepths is not None else 0.0
+    if use_depth:
+        dL_invdepth = dL_invdepths[pix_y, pix_x]
+    else:
+        dL_invdepth = 0.0
     
     # Gradient of pixel coordinate w.r.t. normalized screen-space coordinates
     ddelx_dx = 0.5 * float(W)
@@ -868,6 +872,7 @@ def backward_render(
     n_contrib,
     dL_dpixels,
     dL_invdepths,  # Added depth gradient parameter
+    use_depth,
     dL_dmean2D,
     dL_dconic2D,
     dL_dopacity,
@@ -918,6 +923,7 @@ def backward_render(
             n_contrib,
             dL_dpixels,
             dL_invdepths,  # Added depth gradient input
+            use_depth,
             dL_dmean2D,
             dL_dconic2D,
             dL_dopacity,
@@ -956,6 +962,7 @@ def backward(
     depth=None,  # Added depth parameter
     cov3Ds=None,
     dL_invdepths=None,
+    use_depth=False,
     # --- Internal state buffers ---
     geom_buffer=None,
     binning_buffer=None,
@@ -1138,6 +1145,7 @@ def backward(
         n_contrib=n_contrib,
         dL_dpixels=dL_dpixels_warp,
         dL_invdepths=dL_invdepths_warp,  # Pass depth gradients
+        use_depth=use_depth,
         dL_dmean2D=dL_dmean2D,
         dL_dconic2D=dL_dconic,
         dL_dopacity=dL_dopacity,
