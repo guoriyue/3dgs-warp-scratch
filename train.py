@@ -633,7 +633,7 @@ class NeRFGaussianSplattingTrainer:
                     means3D=self.params['positions'],
                     dL_dpixels=pixel_grad_buffer,
                     # dL_invdepths=depth_grad_buffer,  # Pass depth gradients
-                    # use_depth=True,
+                    # use_invdepth=True,
                     
                     # Model parameters (pass directly from self.params)
                     opacity=self.params['opacities'],

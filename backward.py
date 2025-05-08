@@ -525,7 +525,7 @@ def wp_render_backward_kernel(
     n_contrib: wp.array2d(dtype=int),       # Number of Gaussians contributing to each pixel
     dL_dpixels: wp.array2d(dtype=wp.vec3),  # Gradient of loss w.r.t. output pixels
     dL_invdepths: wp.array2d(dtype=float),  # Gradient of loss w.r.t. inverse depths
-    use_depth: bool,
+    use_invdepth: bool,
     
     # --- Outputs ---
     dL_dmean2D: wp.array(dtype=wp.vec2),    # Gradient w.r.t. 2D mean positions
@@ -576,7 +576,7 @@ def wp_render_backward_kernel(
     
     # Get gradients
     dL_dpixel = dL_dpixels[pix_y, pix_x]
-    if use_depth:
+    if use_invdepth:
         dL_invdepth = dL_invdepths[pix_y, pix_x]
     else:
         dL_invdepth = 0.0
@@ -638,7 +638,7 @@ def wp_render_backward_kernel(
         last_color = color
         
         # Handle depth gradients if enabled
-        if use_depth:
+        if use_invdepth:
             invd = 1.0 / depth
             accum_invdepth_rec = last_alpha * last_invdepth + (1.0 - last_alpha) * accum_invdepth_rec
             last_invdepth = invd
@@ -873,7 +873,7 @@ def backward_render(
     n_contrib,
     dL_dpixels,
     dL_invdepths,  # Added depth gradient parameter
-    use_depth,
+    use_invdepth,
     dL_dmean2D,
     dL_dconic2D,
     dL_dopacity,
@@ -924,7 +924,7 @@ def backward_render(
             n_contrib,
             dL_dpixels,
             dL_invdepths,  # Added depth gradient input
-            use_depth,
+            use_invdepth,
             dL_dmean2D,
             dL_dconic2D,
             dL_dopacity,
@@ -963,7 +963,7 @@ def backward(
     depth=None,  # Added depth parameter
     cov3Ds=None,
     dL_invdepths=None,
-    use_depth=False,
+    use_invdepth=False,
     # --- Internal state buffers ---
     geom_buffer=None,
     binning_buffer=None,
@@ -1146,7 +1146,7 @@ def backward(
         n_contrib=n_contrib,
         dL_dpixels=dL_dpixels_warp,
         dL_invdepths=dL_invdepths_warp,  # Pass depth gradients
-        use_depth=use_depth,
+        use_invdepth=use_invdepth,
         dL_dmean2D=dL_dmean2D,
         dL_dconic2D=dL_dconic,
         dL_dopacity=dL_dopacity,
