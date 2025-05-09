@@ -375,43 +375,6 @@ class NeRFGaussianSplattingTrainer:
 
         return xy_image, depth
 
-
-    def render_view(self, camera_idx):
-        """Render a view from a specific camera using the current point cloud."""
-        camera = self.cameras[camera_idx]
-        
-        # Get point cloud data as numpy arrays
-        positions_np = self.params['positions'].numpy()
-        scales_np = self.params['scales'].numpy()
-        rotations_np = self.params['rotations'].numpy()
-        opacities_np = self.params['opacities'].numpy()
-        shs_np = self.params['shs'].numpy()
-
-        # Render using the warp renderer
-        rendered_image, depth_image, intermediate_buffers = render_gaussians(
-            background=np.array(self.config['background_color'], dtype=np.float32),
-            means3D=positions_np,
-            colors=None,  # Use SH coefficients instead
-            opacity=opacities_np,
-            scales=scales_np,
-            rotations=rotations_np,
-            scale_modifier=self.config['scale_modifier'],
-            viewmatrix=camera['view_matrix'],
-            projmatrix=camera['proj_matrix'],
-            tan_fovx=camera['tan_fovx'],
-            tan_fovy=camera['tan_fovy'],
-            image_height=camera['height'],
-            image_width=camera['width'],
-            sh=shs_np,  # Pass SH coefficients
-            degree=self.config['sh_degree'],
-            campos=camera['camera_pos'],
-            prefiltered=False,
-            antialiasing=True,
-            clamped=True
-        )
-
-        return rendered_image, depth_image, intermediate_buffers
-
     def zero_grad(self):
         """Zero out all gradients."""
         wp.launch(
@@ -550,7 +513,27 @@ class NeRFGaussianSplattingTrainer:
         
         # Save a rendered view
         camera_idx = 0  # Front view
-        rendered_image, _, _ = self.render_view(camera_idx)
+        rendered_image, _, _ = render_gaussians(
+            background=np.array(self.config['background_color'], dtype=np.float32),
+            means3D=self.params['positions'].numpy(),
+            colors=None,  # Use SH coefficients instead
+            opacity=self.params['opacities'].numpy(),
+            scales=self.params['scales'].numpy(),
+            rotations=self.params['rotations'].numpy(),
+            scale_modifier=self.config['scale_modifier'],
+            viewmatrix=self.cameras[camera_idx]['view_matrix'],
+            projmatrix=self.cameras[camera_idx]['proj_matrix'],
+            tan_fovx=self.cameras[camera_idx]['tan_fovx'],
+            tan_fovy=self.cameras[camera_idx]['tan_fovy'],
+            image_height=self.cameras[camera_idx]['height'],
+            image_width=self.cameras[camera_idx]['width'],
+            sh=self.params['shs'].numpy(),  # Pass SH coefficients
+            degree=self.config['sh_degree'],
+            campos=self.cameras[camera_idx]['camera_pos'],
+            prefiltered=False,
+            antialiasing=True,
+            clamped=True
+        )
         plt.figure(figsize=(10, 10))
         plt.imshow(rendered_image)
         plt.title(f'Rendered View at Iteration {iteration}')
@@ -574,7 +557,29 @@ class NeRFGaussianSplattingTrainer:
                 self.zero_grad()
                 
                 # Render the view
-                rendered_image, depth_image, self.intermediate_buffers = self.render_view(camera_idx)
+                rendered_image, depth_image, self.intermediate_buffers = render_gaussians(
+                    background=np.array(self.config['background_color'], dtype=np.float32),
+                    means3D=self.params['positions'].numpy(),
+                    colors=None,  # Use SH coefficients instead
+                    opacity=self.params['opacities'].numpy(),
+                    scales=self.params['scales'].numpy(),
+                    rotations=self.params['rotations'].numpy(),
+                    scale_modifier=self.config['scale_modifier'],
+                    viewmatrix=self.cameras[camera_idx]['view_matrix'],
+                    projmatrix=self.cameras[camera_idx]['proj_matrix'],
+                    tan_fovx=self.cameras[camera_idx]['tan_fovx'],
+                    tan_fovy=self.cameras[camera_idx]['tan_fovy'],
+                    image_height=self.cameras[camera_idx]['height'],
+                    image_width=self.cameras[camera_idx]['width'],
+                    sh=self.params['shs'].numpy(),  # Pass SH coefficients
+                    degree=self.config['sh_degree'],
+                    campos=self.cameras[camera_idx]['camera_pos'],
+                    prefiltered=False,
+                    antialiasing=True,
+                    clamped=True
+                )
+                
+                exit()
 
                 # # save rendered image for debug
                 # # Convert to uint8 format before saving to avoid the data type error

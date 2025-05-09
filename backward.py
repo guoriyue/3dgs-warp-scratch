@@ -591,7 +591,7 @@ def wp_render_backward_kernel(
     # Process Gaussians in back-to-front order
     for i in range(range_end - 1, range_start - 1, -1):
         gaussian_id = point_list[i]
-        
+
         # Skip if this Gaussian is behind the last contributor
         if i >= last_contributor:
             continue
@@ -616,7 +616,7 @@ def wp_render_backward_kernel(
         # Compute Gaussian value and alpha
         G = wp.exp(power)
         alpha = wp.min(0.99, con_o[3] * G)
-        print(alpha)
+
         # Skip if alpha is too small
         if alpha < (1.0 / 255.0):
             continue
@@ -661,12 +661,13 @@ def wp_render_backward_kernel(
         gdy = G * d_y
         dG_ddelx = -gdx * con_o[0] - gdy * con_o[1]
         dG_ddely = -gdy * con_o[2] - gdx * con_o[1]
-        
+
         # Update gradients w.r.t. 2D mean position
         wp.atomic_add(dL_dmean2D, gaussian_id, wp.vec2(
             dL_dG * dG_ddelx * ddelx_dx,
             dL_dG * dG_ddely * ddely_dy
         ))
+        # print(dL_dmean2D[gaussian_id])
         # Update gradients w.r.t. 2D conic matrix
         wp.atomic_add(dL_dconic2D, gaussian_id, wp.vec3(
             -0.5 * gdx * d_x * dL_dG,
@@ -942,6 +943,40 @@ def backward_render(
     print("dL_dcolors", dL_dcolors)
     print("dL_dinvdepths", dL_dinvdepths)
     print("wp_render_backward_kernel done")
+    
+    # Convert to torch and print non-zero values
+    dL_dmean2D_torch = wp.to_torch(dL_dmean2D)
+    dL_dconic2D_torch = wp.to_torch(dL_dconic2D)
+    dL_dopacity_torch = wp.to_torch(dL_dopacity)
+    dL_dcolors_torch = wp.to_torch(dL_dcolors)
+    dL_dinvdepths_torch = wp.to_torch(dL_dinvdepths)
+
+    # Print non-zero values for each gradient
+    print("\nNon-zero dL_dmean2D:")
+    non_zero_mean2D = torch.nonzero(dL_dmean2D_torch.abs() > 1e-6)
+    if len(non_zero_mean2D) > 0:
+        print(dL_dmean2D_torch[non_zero_mean2D[:, 0]])
+
+    print("\nNon-zero dL_dconic2D:")
+    non_zero_conic2D = torch.nonzero(dL_dconic2D_torch.abs() > 1e-6)
+    if len(non_zero_conic2D) > 0:
+        print(dL_dconic2D_torch[non_zero_conic2D[:, 0]])
+
+    print("\nNon-zero dL_dopacity:")
+    non_zero_opacity = torch.nonzero(dL_dopacity_torch.abs() > 1e-6)
+    if len(non_zero_opacity) > 0:
+        print(dL_dopacity_torch[non_zero_opacity[:, 0]])
+
+    print("\nNon-zero dL_dcolors:")
+    non_zero_colors = torch.nonzero(dL_dcolors_torch.abs() > 1e-6)
+    if len(non_zero_colors) > 0:
+        print(dL_dcolors_torch[non_zero_colors[:, 0]])
+
+    print("\nNon-zero dL_dinvdepths:")
+    non_zero_invdepths = torch.nonzero(dL_dinvdepths_torch.abs() > 1e-6)
+    if len(non_zero_invdepths) > 0:
+        print(dL_dinvdepths_torch[non_zero_invdepths[:, 0]])
+    
     exit()
     # these should be output of 
     # float3* __restrict__ dL_dmean2D,
