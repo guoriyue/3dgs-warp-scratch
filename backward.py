@@ -616,7 +616,7 @@ def wp_render_backward_kernel(
         # Compute Gaussian value and alpha
         G = wp.exp(power)
         alpha = wp.min(0.99, con_o[3] * G)
-        
+        print(alpha)
         # Skip if alpha is too small
         if alpha < (1.0 / 255.0):
             continue
