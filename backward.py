@@ -513,6 +513,7 @@ def wp_render_backward_kernel(
     W: int,                                 # Image width
     H: int,                                 # Image height
     bg_color: wp.vec3,                      # Background color
+    tile_grid: wp.vec3,
     
     # Gaussian parameters
     points_xy_image: wp.array(dtype=wp.vec2), # 2D projected positions
@@ -558,7 +559,8 @@ def wp_render_backward_kernel(
     pixf_y = float(pix_y)
     
     # Get tile range (start/end indices in point_list)
-    tile_id = tile_y * ((W + TILE_M - 1) // TILE_M) + tile_x
+    tile_id = tile_y * int(tile_grid[0]) + tile_x
+    
     range_start = ranges[tile_id][0]
     range_end = ranges[tile_id][1]
     
@@ -606,7 +608,7 @@ def wp_render_backward_kernel(
         
         # Compute Gaussian power
         power = -0.5 * (con_o[0] * d_x * d_x + con_o[2] * d_y * d_y) - con_o[1] * d_x * d_y
-        
+
         # Skip if power is positive (too far away)
         if power > 0.0:
             continue
@@ -665,7 +667,6 @@ def wp_render_backward_kernel(
             dL_dG * dG_ddelx * ddelx_dx,
             dL_dG * dG_ddely * ddely_dy
         ))
-        print(gaussian_id)
         # Update gradients w.r.t. 2D conic matrix
         wp.atomic_add(dL_dconic2D, gaussian_id, wp.vec3(
             -0.5 * gdx * d_x * dL_dG,
@@ -799,6 +800,7 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
+    exit()
     print("compute_cov2d_backward_kernel done")
     # Step 2: Compute gradients for 3D means due to projection
     wp.launch(
@@ -865,6 +867,7 @@ def backward_render(
     width,
     height,
     bg_color,
+    tile_grid,
     points_xy_image,
     conic_opacity,
     colors,
@@ -916,6 +919,7 @@ def backward_render(
             width,
             height,
             bg_color,
+            tile_grid,
             points_xy_image,
             conic_opacity,
             colors,
@@ -932,7 +936,19 @@ def backward_render(
             dL_dinvdepths  # Added depth gradient output
         ],
     )
+    print("dL_dmean2D", dL_dmean2D)
+    print("dL_dconic2D", dL_dconic2D)
+    print("dL_dopacity", dL_dopacity)
+    print("dL_dcolors", dL_dcolors)
+    print("dL_dinvdepths", dL_dinvdepths)
     print("wp_render_backward_kernel done")
+    exit()
+    # these should be output of 
+    # float3* __restrict__ dL_dmean2D,
+	# float4* __restrict__ dL_dconic2D,
+	# float* __restrict__ dL_dopacity,
+	# float* __restrict__ dL_dcolors,
+	# float* __restrict__ dL_dinvdepths
 
 def backward(
     # --- Core parameters ---
@@ -1131,6 +1147,10 @@ def backward(
     # Use precomputed colors if provided, otherwise use colors from forward pass
     color_ptr = colors_warp if colors_warp is not None else rgb_warp
     
+    tile_grid = wp.vec3((image_width + TILE_M - 1) // TILE_M, 
+                        (image_height + TILE_N - 1) // TILE_N, 
+                        1)
+
     # --- Step 1: Compute loss gradients w.r.t. 2D parameters ---
     backward_render(
         ranges=ranges,
@@ -1138,6 +1158,7 @@ def backward(
         width=image_width,
         height=image_height,
         bg_color=background_warp,
+        tile_grid=tile_grid,
         points_xy_image=means2D_warp,
         conic_opacity=conic_opacity_warp,
         colors=color_ptr,
