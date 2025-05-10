@@ -176,7 +176,7 @@ class NeRFGaussianSplattingTrainer:
         rotations = wp.zeros(self.num_points, dtype=wp.vec4)
         opacities = wp.zeros(self.num_points, dtype=float)
         shs = wp.zeros(self.num_points * 16, dtype=wp.vec3)  # 16 coeffs per point
-        camera_center, camera_direction = self.compute_initialization_center()
+        camera_center = self.compute_initialization_center()
         # Launch kernel to initialize parameters
         wp.launch(
             init_gaussian_params,
@@ -211,21 +211,15 @@ class NeRFGaussianSplattingTrainer:
         }
     
     def compute_initialization_center(self):
-        """Compute central point and average view direction from multiple cameras."""
-        positions = np.array([cam['camera_pos'] for cam in self.cameras])  # (N, 3)
+        """Compute central point from camera look-at positions."""
         centers = []
-        directions = []
-
         for cam in self.cameras:
-            R = cam['R']  # rotation matrix (3x3)
-            cam_pos = cam['camera_pos']  # (3,)
-            forward = -R[:, 2]  # camera forward direction (negative z-axis)
-            centers.append(np.array(cam_pos) + forward * 1.0)  # lookahead point
-            directions.append(forward)
-
-        avg_center = np.mean(centers, axis=0)
-        avg_direction = np.mean(directions, axis=0)
-        return avg_center, avg_direction / np.linalg.norm(avg_direction)
+            forward = -cam['R'][:, 2]  # camera forward direction
+            look_at = cam['camera_pos'] + forward * 1.0
+            centers.append(look_at)
+        
+        scene_center = np.mean(centers, axis=0)
+        return scene_center
 
     def load_nerf_data(self):
         """Load camera parameters and images from a NeRF dataset."""
@@ -540,6 +534,57 @@ class NeRFGaussianSplattingTrainer:
         plt.axis('off')
         plt.savefig(checkpoint_dir / "rendered_view.png")
         plt.close()
+        
+    def save_debug_images(self, rendered_image, target_image, depth_image, camera_idx, iteration):
+        # save rendered image for debug
+        # Convert to uint8 format before saving to avoid the data type error
+        rendered_uint8 = (np.clip(rendered_image, 0, 1) * 255).astype(np.uint8)
+        target_uint8 = (np.clip(target_image, 0, 1) * 255).astype(np.uint8)
+        imageio.imwrite(self.output_path / f"train_rendered_image_{camera_idx:03d}_{iteration:06d}.png", rendered_uint8)
+        imageio.imwrite(self.output_path / f"train_target_image_{camera_idx:03d}_{iteration:06d}.png", target_uint8)
+        
+                
+        image_width = self.cameras[camera_idx]['width']
+        image_height = self.cameras[camera_idx]['height']
+        
+        xy = wp.to_torch(self.intermediate_buffers['points_xy_image']).cpu().numpy()
+        plt.figure(figsize=(10, 10))
+        plt.scatter(xy[:, 0], xy[:, 1], s=1)
+        plt.xlim([0, image_width])
+        plt.ylim([image_height, 0])
+        plt.title("Projected 2D Gaussian Centers")
+        plt.savefig(self.output_path / f"gaussian_centers_{camera_idx:03d}_{iteration:06d}.png")
+        plt.close()
+
+        rgb = wp.to_torch(self.intermediate_buffers['rgb']).cpu().numpy()
+        rgb = np.clip(rgb, 0.0, 1.0)
+        plt.figure(figsize=(10, 10))
+        plt.scatter(xy[:, 0], xy[:, 1], c=rgb, s=2)
+        plt.title("Projected Gaussians Colored by SH Output")
+        plt.savefig(self.output_path / f"gaussian_colors_{camera_idx:03d}_{iteration:06d}.png")
+        plt.close()
+        
+        xy = wp.to_torch(self.intermediate_buffers['points_xy_image']).cpu().numpy()
+        rgb = wp.to_torch(self.intermediate_buffers['rgb']).cpu().numpy()
+        rgb = np.clip(rgb, 0.0, 1.0)
+
+        plt.figure(figsize=(10, 10))
+        plt.scatter(xy[:, 0], xy[:, 1], c=rgb, s=2)
+        plt.xlim([0, image_width])
+        plt.ylim([image_height, 0])
+        plt.title("Debug: Projected Gaussians with RGB")
+        plt.savefig(self.output_path / f"debug_gaussians_rgb_{camera_idx:03d}_{iteration:06d}.png", dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        points_xy = wp.to_torch(self.intermediate_buffers['points_xy_image']).cpu().numpy()
+        image_w = self.config['width']
+        image_h = self.config['height']
+        mask_in_frame = (
+            (points_xy[:, 0] >= 0) & (points_xy[:, 0] < image_w) &
+            (points_xy[:, 1] >= 0) & (points_xy[:, 1] < image_h)
+        )
+        print(f"{np.sum(mask_in_frame)} / {len(points_xy)} Gaussians project inside the image bounds")
+
     
     def train(self):
         """Train the 3D Gaussian Splatting model."""
@@ -579,15 +624,13 @@ class NeRFGaussianSplattingTrainer:
                     clamped=True
                 )
                 
+                
+                
+                self.save_debug_images(rendered_image, target_image, depth_image, camera_idx, iteration)
+                
                 exit()
 
-                # # save rendered image for debug
-                # # Convert to uint8 format before saving to avoid the data type error
-                # rendered_uint8 = (np.clip(rendered_image, 0, 1) * 255).astype(np.uint8)
-                # target_uint8 = (np.clip(target_image, 0, 1) * 255).astype(np.uint8)
-                # imageio.imwrite(self.output_path / "train_rendered_image.png", rendered_uint8)
-                # imageio.imwrite(self.output_path / "train_target_image.png", target_uint8)
-                
+
   
 
                 # Calculate L1 loss
