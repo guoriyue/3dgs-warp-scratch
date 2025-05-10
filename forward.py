@@ -810,6 +810,7 @@ def render_gaussians(
     # Return rendered image, depth image, and intermediate buffers needed for backward pass
     return rendered_image, depth_image, {
         "radii": radii,
+        "point_offsets": point_offsets,
         "points_xy_image": points_xy_image,
         "depths": depths,
         "rgb": rgb,
@@ -819,6 +820,5 @@ def render_gaussians(
         "ranges": ranges,
         "final_Ts": final_Ts,  # Add final_Ts to intermediate buffers
         "n_contrib": n_contrib,  # Add contributor count to intermediate buffers
-        "depth_image": depth_image,
         "clamped_state": clamped_state  # Add clamped state to intermediate buffers
     }

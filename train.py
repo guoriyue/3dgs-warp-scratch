@@ -211,14 +211,29 @@ class NeRFGaussianSplattingTrainer:
         }
     
     def compute_initialization_center(self):
-        """Compute central point from camera look-at positions."""
-        centers = []
-        for cam in self.cameras:
-            forward = -cam['R'][:, 2]  # camera forward direction
-            look_at = cam['camera_pos'] + forward * 1.0
-            centers.append(look_at)
+        """Compute center point for initializing Gaussians in front of cameras."""
+        # Use the mean of camera positions rather than look-at points
+        cam_positions = np.array([cam['camera_pos'] for cam in self.cameras])
+        position_center = np.mean(cam_positions, axis=0)
         
-        scene_center = np.mean(centers, axis=0)
+        # Compute average forward direction
+        forward_dirs = []
+        for cam in self.cameras:
+            # Get camera forward direction (Z is forward after our view matrix fix)
+            cam_forward = cam['R'][:, 2]  # Z column of rotation matrix
+            forward_dirs.append(cam_forward)
+        
+        avg_forward = np.mean(forward_dirs, axis=0)
+        avg_forward = avg_forward / np.linalg.norm(avg_forward)  # Normalize
+        
+        # Place init point in front of average camera position
+        # Use a moderate distance to ensure visibility (3 units)
+        scene_center = position_center + avg_forward * 3.0
+        
+        print(f"Camera position center: {position_center}")
+        print(f"Average forward direction: {avg_forward}")
+        print(f"Scene center for initialization: {scene_center}")
+        
         return scene_center
 
     def load_nerf_data(self):
@@ -279,8 +294,11 @@ class NeRFGaussianSplattingTrainer:
             world2cam[:3, 3] = -rotation.T @ position  # -R^T * t for translation
             world2cam[3, 3] = 1.0
             
-            # Create view matrix (same as world2cam for our purposes)
-            view_matrix = world2cam
+            # FIX: Adjust view matrix to match the forward renderer expectation
+            # Inverting the sign of the 3rd row to flip Z direction
+            # This makes OpenGL-style coordinate systems work correctly with our renderer
+            view_matrix = world2cam.copy()
+            view_matrix[2, :] = -view_matrix[2, :]  # Flip Z row
             
             # Calculate fov from focal length
             fovx = 2 * np.arctan(width / (2 * focal))
@@ -329,45 +347,6 @@ class NeRFGaussianSplattingTrainer:
             return img_np
         else:
             raise FileNotFoundError(f"Image not found: {path}")
-    
-    def project_points(self, points_3d, view_matrix, proj_matrix, W, H):
-        """
-        Projects 3D points into image space (pixel xy and depth) using the given view and projection matrices.
-
-        Args:
-            points_3d (np.ndarray): (N, 3) array of 3D points in world coordinates
-            view_matrix (np.ndarray): (4, 4) view matrix (world-to-camera)
-            proj_matrix (np.ndarray): (4, 4) projection matrix (camera-to-clip)
-            W (int): image width
-            H (int): image height
-
-        Returns:
-            xy_image: (N, 2) projected pixel coordinates (in image space)
-            depth: (N,) depth values in view space (i.e., z in camera space)
-        """
-        N = points_3d.shape[0]
-
-        # Convert to homogeneous coordinates
-        points_h = np.concatenate([points_3d, np.ones((N, 1))], axis=1)  # (N, 4)
-
-        # Transform to view space
-        view_points = (view_matrix @ points_h.T).T  # (N, 4)
-        depth = view_points[:, 2]  # z in view space
-
-        # Transform to clip space
-        clip_points = (proj_matrix @ view_points.T).T  # (N, 4)
-        clip_points /= clip_points[:, 3:4]  # perspective divide
-
-        # Map to NDC [-1, 1]
-        ndc = clip_points[:, :3]
-
-        # Map NDC to image coordinates
-        x_img = (ndc[:, 0] + 1) * 0.5 * W
-        y_img = (ndc[:, 1] + 1) * 0.5 * H
-
-        xy_image = np.stack([x_img, y_img], axis=1)  # (N, 2)
-
-        return xy_image, depth
 
     def zero_grad(self):
         """Zero out all gradients."""
@@ -535,67 +514,67 @@ class NeRFGaussianSplattingTrainer:
         plt.savefig(checkpoint_dir / "rendered_view.png")
         plt.close()
         
-    def debug_log_and_save_images(self, rendered_image, target_image, depth_image, camera_idx, iteration):
-        
-        point_offsets = self.intermediate_buffers['point_offsets']
-        num_rendered = int(wp.to_torch(point_offsets)[-1])
-        print("duplicated entries (after radius / tile):", num_rendered)
 
-        # 2) radii & opacity
-        r_np  = wp.to_torch(self.intermediate_buffers['radii']).cpu().numpy()
-        o_np  = wp.to_torch(self.intermediate_buffers['conic_opacity']).cpu().numpy()[:,3]   # 第 4 分量是 opacity
-        print("radius  min/med/max:", r_np.min(), np.median(r_np[r_np>0]), r_np.max())
-        print("opacity min/med/max:", o_np.min(), np.median(o_np), o_np.max())
+    def debug_log_and_save_images(
+            self,
+            rendered_image,         # np.float32  H×W×3  (range 0-1)
+            target_image,           # np.float32
+            depth_image,            # wp.array2d(float) – optional but unused here
+            camera_idx: int,
+            it: int
+    ):
 
-
-        # save rendered image for debug
-        # Convert to uint8 format before saving to avoid the data type error
-        rendered_uint8 = (np.clip(rendered_image, 0, 1) * 255).astype(np.uint8)
-        target_uint8 = (np.clip(target_image, 0, 1) * 255).astype(np.uint8)
-        imageio.imwrite(self.output_path / f"train_rendered_image_{iteration:06d}.png", rendered_uint8)
-        imageio.imwrite(self.output_path / f"train_target_image_{iteration:06d}.png", target_uint8)
-        
-                
-        image_width = self.cameras[camera_idx]['width']
-        image_height = self.cameras[camera_idx]['height']
-        
-        xy = wp.to_torch(self.intermediate_buffers['points_xy_image']).cpu().numpy()
-        plt.figure(figsize=(10, 10))
-        plt.scatter(xy[:, 0], xy[:, 1], s=1)
-        plt.xlim([0, image_width])
-        plt.ylim([image_height, 0])
-        plt.title("Projected 2D Gaussian Centers")
-        plt.savefig(self.output_path / f"gaussian_centers_{iteration:06d}.png")
-        plt.close()
-
-        rgb = wp.to_torch(self.intermediate_buffers['rgb']).cpu().numpy()
-        rgb = np.clip(rgb, 0.0, 1.0)
-        plt.figure(figsize=(10, 10))
-        plt.scatter(xy[:, 0], xy[:, 1], c=rgb, s=2)
-        plt.title("Projected Gaussians Colored by SH Output")
-        plt.savefig(self.output_path / f"gaussian_colors_{iteration:06d}.png")
-        plt.close()
-        
-        xy = wp.to_torch(self.intermediate_buffers['points_xy_image']).cpu().numpy()
-        rgb = wp.to_torch(self.intermediate_buffers['rgb']).cpu().numpy()
-        rgb = np.clip(rgb, 0.0, 1.0)
-
-        plt.figure(figsize=(10, 10))
-        plt.scatter(xy[:, 0], xy[:, 1], c=rgb, s=2)
-        plt.xlim([0, image_width])
-        plt.ylim([image_height, 0])
-        plt.title("Debug: Projected Gaussians with RGB")
-        plt.savefig(self.output_path / f"debug_gaussians_rgb_{iteration:06d}.png", dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        points_xy = wp.to_torch(self.intermediate_buffers['points_xy_image']).cpu().numpy()
-        image_w = self.config['width']
-        image_h = self.config['height']
-        mask_in_frame = (
-            (points_xy[:, 0] >= 0) & (points_xy[:, 0] < image_w) &
-            (points_xy[:, 1] >= 0) & (points_xy[:, 1] < image_h)
+        # ------ quick numeric read-out -----------------------------------
+        radii   = wp.to_torch(self.intermediate_buffers["radii"]).cpu().numpy()
+        alphas  = wp.to_torch(self.intermediate_buffers["conic_opacity"]).cpu().numpy()[:, 3]
+        offs    = wp.to_torch(self.intermediate_buffers["point_offsets"]).cpu().numpy()
+        num_dup = int(offs[-1]) if len(offs) else 0
+        r_med   = np.median(radii[radii > 0]) if (radii > 0).any() else 0
+        print(
+            f"[it {it:05d}] dup={num_dup:<6} "
+            f"r_med={r_med:5.1f}  α∈[{alphas.min():.3f},"
+            f"{np.median(alphas):.3f},{alphas.max():.3f}]"
         )
-        print(f"{np.sum(mask_in_frame)} / {len(points_xy)} Gaussians project inside the image bounds")
+
+        # ------ save render / target PNG ---------------------------------
+        def save_rgb(arr_f32, stem):
+            img8 = (np.clip(arr_f32, 0, 1) * 255).astype(np.uint8)
+            imageio.imwrite(self.output_path / f"{stem}_{it:06d}.png", img8)
+
+        save_rgb(rendered_image, "render")
+        save_rgb(target_image,   "target")
+
+        # ------ make 2-D projection scatter ------------------------------
+        xy     = wp.to_torch(self.intermediate_buffers["points_xy_image"]).cpu().numpy()
+        depth  = wp.to_torch(self.intermediate_buffers["depths"]).cpu().numpy()
+        H, W   = self.config["height"], self.config["width"]
+
+        mask = (
+            (xy[:, 0] >= 0) & (xy[:, 0] < W) &
+            (xy[:, 1] >= 0) & (xy[:, 1] < H) &
+            np.isfinite(xy).all(axis=1)
+        )
+        if mask.any():
+            plt.figure(figsize=(6, 6))
+            plt.scatter(xy[mask, 0], xy[mask, 1],
+                        s=4, c=depth[mask], cmap="turbo", alpha=.7)
+            plt.gca().invert_yaxis()
+            plt.xlim(0, W); plt.ylim(H, 0)
+            plt.title(f"Projected Gaussians (iter {it})")
+            plt.colorbar(label="depth(z)")
+            plt.tight_layout()
+            plt.savefig(self.output_path / f"proj_{it:06d}.png", dpi=250)
+            plt.close()
+
+            # depth histogram
+            plt.figure(figsize=(5, 3))
+            plt.hist(depth[mask], bins=40, color="steelblue")
+            plt.xlabel("depth (camera-z)")
+            plt.ylabel("count")
+            plt.title(f"Depth hist – {mask.sum()} pts")
+            plt.tight_layout()
+            plt.savefig(self.output_path / f"depth_hist_{it:06d}.png", dpi=250)
+            plt.close()
 
     
     def train(self):
