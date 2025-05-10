@@ -535,7 +535,19 @@ class NeRFGaussianSplattingTrainer:
         plt.savefig(checkpoint_dir / "rendered_view.png")
         plt.close()
         
-    def save_debug_images(self, rendered_image, target_image, depth_image, camera_idx, iteration):
+    def debug_log_and_save_images(self, rendered_image, target_image, depth_image, camera_idx, iteration):
+        
+        point_offsets = self.intermediate_buffers['point_offsets']
+        num_rendered = int(wp.to_torch(point_offsets)[-1])
+        print("duplicated entries (after radius / tile):", num_rendered)
+
+        # 2) radii & opacity
+        r_np  = wp.to_torch(self.intermediate_buffers['radii']).cpu().numpy()
+        o_np  = wp.to_torch(self.intermediate_buffers['conic_opacity']).cpu().numpy()[:,3]   # 第 4 分量是 opacity
+        print("radius  min/med/max:", r_np.min(), np.median(r_np[r_np>0]), r_np.max())
+        print("opacity min/med/max:", o_np.min(), np.median(o_np), o_np.max())
+
+
         # save rendered image for debug
         # Convert to uint8 format before saving to avoid the data type error
         rendered_uint8 = (np.clip(rendered_image, 0, 1) * 255).astype(np.uint8)
@@ -638,14 +650,10 @@ class NeRFGaussianSplattingTrainer:
                     clamped=True
                 )
                 
-                radii_np = wp.to_torch(self.intermediate_buffers['radii']).cpu().numpy()
-                print("radius  min/median/max :", radii_np.min(), np.median(radii_np), radii_np.max())
-                # 如果 max > 300   基本就是它
 
+                                
                 
-                
-                
-                self.save_debug_images(rendered_image, target_image, depth_image, camera_idx, iteration)
+                self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
                 
                 exit()
 
