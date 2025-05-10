@@ -289,6 +289,25 @@ if __name__ == "__main__":
     antialiasing = False
     clamped = True
     debug = args.debug
+    print("background", background)
+    print("pts", pts.shape)
+    print("colors", colors.shape)
+    print("opacities", opacities.shape)
+    print("scales", scales.shape)
+    print("rotations", rotations.shape)
+    print("scale_modifier", scale_modifier)
+    print("viewmatrix", camera_params['view_matrix'])
+    print("projmatrix", camera_params['proj_matrix'])
+    print("tan_fovx", camera_params['tan_fovx'])
+    print("tan_fovy", camera_params['tan_fovy'])
+    print("image_height", image_height)
+    print("image_width", image_width)
+    print("shs", shs.shape)
+    print("degree", sh_degree)
+    print("campos", camera_params['camera_pos'])
+    print("prefiltered", prefiltered)
+    print("antialiasing", antialiasing)
+    print("clamped", clamped)
     
     # Call the Gaussian rasterizer
     rendered_image, depth_image, _ = render_gaussians(

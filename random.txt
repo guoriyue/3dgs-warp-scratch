@@ -1,0 +1,23 @@
+self.params['positions'].numpy() (5000, 3)
+self.params['opacities'].numpy() (5000,)
+self.params['scales'].numpy() (5000, 3)
+self.params['rotations'].numpy() (5000, 4)
+self.params['shs'].numpy() (80000, 3)
+self.config['scale_modifier'] 3.0
+self.cameras[camera_idx]['view_matrix'] [[ 7.9563183e-01 -6.0578054e-01 -1.4901161e-08  6.3607388e-08]
+ [ 5.2092606e-01  6.8418401e-01  5.1041979e-01  6.2370489e-08]
+ [-3.0920234e-01 -4.0610620e-01  8.5992539e-01 -4.0311289e+00]
+ [ 0.0000000e+00  0.0000000e+00  0.0000000e+00  1.0000000e+00]]
+self.cameras[camera_idx]['proj_matrix'] [[ 2.77777758  0.          0.          0.        ]
+ [ 0.          2.77777758  0.          0.        ]
+ [ 0.          0.          1.00010001 -0.010001  ]
+ [ 0.          0.          1.          0.        ]]
+self.cameras[camera_idx]['tan_fovx'] 0.36000002589322094
+self.cameras[camera_idx]['tan_fovy'] 0.36000002589322094
+self.cameras[camera_idx]['height'] 800
+self.cameras[camera_idx]['width'] 800
+self.cameras[camera_idx]['camera_pos'] [-1.2464346 -1.6370665  3.46647  ]
+self.config['sh_degree'] 3
+Module forward e231463 load on device 'cpu' took 0.55 ms  (cached)
+2149 / 5000 Gaussians project inside the image bounds
+  0%|              

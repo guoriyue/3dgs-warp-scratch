@@ -26,7 +26,7 @@ class GaussianParams:
     # Training parameters
     num_iterations = 1000  # Default number of training iterations
     learning_rate = 0.01  # Learning rate for Adam optimizer
-    num_points = 5000  # Initial number of Gaussian points
+    num_points = 500  # Initial number of Gaussian points
 
     # Optimization parameters
     densification_interval = 300  # Perform densification every N iterations
@@ -37,10 +37,8 @@ class GaussianParams:
     adam_epsilon = 1e-8  # Adam optimizer epsilon parameter
 
     # Gaussian parameters
-    # initial_scale = 0.1  # Initial scale for Gaussian points
-    # scale_modifier = 1.0  # Scaling factor for Gaussian splats
-    initial_scale = 0.3
-    scale_modifier = 3.0
+    initial_scale = 0.05  # Initial scale for Gaussian points
+    scale_modifier = 0.5  # Scaling factor for Gaussian splats
     sh_degree = 3  # Spherical harmonics degree
 
     # Scene parameters
