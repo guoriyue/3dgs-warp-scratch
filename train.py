@@ -540,8 +540,8 @@ class NeRFGaussianSplattingTrainer:
         # Convert to uint8 format before saving to avoid the data type error
         rendered_uint8 = (np.clip(rendered_image, 0, 1) * 255).astype(np.uint8)
         target_uint8 = (np.clip(target_image, 0, 1) * 255).astype(np.uint8)
-        imageio.imwrite(self.output_path / f"train_rendered_image_{camera_idx:03d}_{iteration:06d}.png", rendered_uint8)
-        imageio.imwrite(self.output_path / f"train_target_image_{camera_idx:03d}_{iteration:06d}.png", target_uint8)
+        imageio.imwrite(self.output_path / f"train_rendered_image_{iteration:06d}.png", rendered_uint8)
+        imageio.imwrite(self.output_path / f"train_target_image_{iteration:06d}.png", target_uint8)
         
                 
         image_width = self.cameras[camera_idx]['width']
@@ -553,7 +553,7 @@ class NeRFGaussianSplattingTrainer:
         plt.xlim([0, image_width])
         plt.ylim([image_height, 0])
         plt.title("Projected 2D Gaussian Centers")
-        plt.savefig(self.output_path / f"gaussian_centers_{camera_idx:03d}_{iteration:06d}.png")
+        plt.savefig(self.output_path / f"gaussian_centers_{iteration:06d}.png")
         plt.close()
 
         rgb = wp.to_torch(self.intermediate_buffers['rgb']).cpu().numpy()
@@ -561,7 +561,7 @@ class NeRFGaussianSplattingTrainer:
         plt.figure(figsize=(10, 10))
         plt.scatter(xy[:, 0], xy[:, 1], c=rgb, s=2)
         plt.title("Projected Gaussians Colored by SH Output")
-        plt.savefig(self.output_path / f"gaussian_colors_{camera_idx:03d}_{iteration:06d}.png")
+        plt.savefig(self.output_path / f"gaussian_colors_{iteration:06d}.png")
         plt.close()
         
         xy = wp.to_torch(self.intermediate_buffers['points_xy_image']).cpu().numpy()
@@ -573,7 +573,7 @@ class NeRFGaussianSplattingTrainer:
         plt.xlim([0, image_width])
         plt.ylim([image_height, 0])
         plt.title("Debug: Projected Gaussians with RGB")
-        plt.savefig(self.output_path / f"debug_gaussians_rgb_{camera_idx:03d}_{iteration:06d}.png", dpi=300, bbox_inches='tight')
+        plt.savefig(self.output_path / f"debug_gaussians_rgb_{iteration:06d}.png", dpi=300, bbox_inches='tight')
         plt.close()
         
         points_xy = wp.to_torch(self.intermediate_buffers['points_xy_image']).cpu().numpy()
