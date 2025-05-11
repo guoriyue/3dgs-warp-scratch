@@ -136,7 +136,7 @@ def wp_preprocess(
     p_orig = orig_points[i]
     
     p_view = in_frustum(p_orig, view_matrix)
-    
+
     if wp.abs(p_view[2]) <= 0.2:  # Points too close to camera plane (handles both +z and -z camera directions)
         return
     

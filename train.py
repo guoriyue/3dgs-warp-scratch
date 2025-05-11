@@ -176,7 +176,7 @@ class NeRFGaussianSplattingTrainer:
         rotations = wp.zeros(self.num_points, dtype=wp.vec4)
         opacities = wp.zeros(self.num_points, dtype=float)
         shs = wp.zeros(self.num_points * 16, dtype=wp.vec3)  # 16 coeffs per point
-        camera_center = self.compute_initialization_center()
+        camera_center, avg_back_dir = self.compute_initialization_center()
         # Launch kernel to initialize parameters
         wp.launch(
             init_gaussian_params,
@@ -211,30 +211,36 @@ class NeRFGaussianSplattingTrainer:
         }
     
     def compute_initialization_center(self):
-        """Compute center point for initializing Gaussians in front of cameras."""
-        # Use the mean of camera positions rather than look-at points
-        cam_positions = np.array([cam['camera_pos'] for cam in self.cameras])
-        position_center = np.mean(cam_positions, axis=0)
-        
-        # Compute average forward direction
-        forward_dirs = []
+        """
+        A better heuristic for the scene centre:
+
+        • For every camera, take its position P and its forward direction F
+        (negative Z axis in NeRF-synthetic).
+        • March 1.0 world-unit along F (so P + F) – that’s roughly the object surface.
+        • Average those points.  Result ≈ centre of the lego excavator.
+        • Return both the average centre and the average *backward* direction
+        (useful if you later need a canonical ‘view’ dir).
+        """
+        pts_on_object = []
+        back_dirs     = []
+
         for cam in self.cameras:
-            # Get camera forward direction (Z is forward after our view matrix fix)
-            cam_forward = cam['R'][:, 2]  # Z column of rotation matrix
-            forward_dirs.append(cam_forward)
-        
-        avg_forward = np.mean(forward_dirs, axis=0)
-        avg_forward = avg_forward / np.linalg.norm(avg_forward)  # Normalize
-        
-        # Place init point in front of average camera position
-        # Use a moderate distance to ensure visibility (3 units)
-        scene_center = position_center + avg_forward * 3.0
-        
-        print(f"Camera position center: {position_center}")
-        print(f"Average forward direction: {avg_forward}")
-        print(f"Scene center for initialization: {scene_center}")
-        
-        return scene_center
+            P = np.asarray(cam["camera_pos"], dtype=np.float32)
+
+            # camera forward is -R[:,2]  (NeRF convention)
+            fwd = -cam["R"][:, 2]
+            fwd /= np.linalg.norm(fwd)
+
+            pts_on_object.append(P + fwd * 1.0)   # 1-unit in front
+            back_dirs.append(-fwd)                # 'scene → camera' dir for later
+
+        scene_center = np.mean(pts_on_object, axis=0)
+        avg_back_dir = np.mean(back_dirs, axis=0)
+        avg_back_dir /= np.linalg.norm(avg_back_dir)
+
+        print("Better scene centre :", scene_center)
+        return scene_center, avg_back_dir
+
 
     def load_nerf_data(self):
         """Load camera parameters and images from a NeRF dataset."""
@@ -634,7 +640,6 @@ class NeRFGaussianSplattingTrainer:
                 
                 self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
                 
-                exit()
 
 
   
@@ -746,7 +751,6 @@ class NeRFGaussianSplattingTrainer:
                 print("Rendered image mean:", wp.to_torch(rendered_image).mean().item(), wp.to_torch(rendered_image).max().item(), wp.to_torch(rendered_image).min().item())
                 print("Pixel gradient mean:", wp.to_torch(pixel_grad_buffer).abs().mean(), wp.to_torch(pixel_grad_buffer).abs().max(), wp.to_torch(pixel_grad_buffer).abs().min())
                 
-                exit()
                 # Update parameters
                 self.optimizer_step(iteration)
                 

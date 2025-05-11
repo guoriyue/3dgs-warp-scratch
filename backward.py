@@ -667,7 +667,7 @@ def wp_render_backward_kernel(
             dL_dG * dG_ddelx * ddelx_dx,
             dL_dG * dG_ddely * ddely_dy
         ))
-        # print(dL_dmean2D[gaussian_id])
+        print(dL_dmean2D[gaussian_id])
         # Update gradients w.r.t. 2D conic matrix
         wp.atomic_add(dL_dconic2D, gaussian_id, wp.vec3(
             -0.5 * gdx * d_x * dL_dG,
@@ -909,7 +909,26 @@ def backward_render(
     # Calculate tile grid dimensions
     tile_grid_x = (width + TILE_M - 1) // TILE_M
     tile_grid_y = (height + TILE_N - 1) // TILE_N
-
+    # Check if dL_dpixels and dL_invdepths are all zeros
+    dL_dpixels_torch = wp.to_torch(dL_dpixels)
+    dL_invdepths_torch = wp.to_torch(dL_invdepths)
+    
+    # Check if all elements are zeros (or very close to zero)
+    dpixels_all_zeros = torch.all(torch.abs(dL_dpixels_torch) < 1e-6).item()
+    dinvdepths_all_zeros = torch.all(torch.abs(dL_invdepths_torch) < 1e-6).item()
+    
+    print(f"dL_dpixels all zeros: {dpixels_all_zeros}")
+    print(f"dL_invdepths all zeros: {dinvdepths_all_zeros}")
+    
+    # Print some statistics if not all zeros
+    if not dpixels_all_zeros:
+        print(f"dL_dpixels non-zero count: {torch.sum(torch.abs(dL_dpixels_torch) >= 1e-6).item()}")
+        print(f"dL_dpixels max value: {torch.max(torch.abs(dL_dpixels_torch)).item()}")
+    
+    if not dinvdepths_all_zeros:
+        print(f"dL_invdepths non-zero count: {torch.sum(torch.abs(dL_invdepths_torch) >= 1e-6).item()}")
+        print(f"dL_invdepths max value: {torch.max(torch.abs(dL_invdepths_torch)).item()}")
+    
     # Launch the backward rendering kernel
     wp.launch(
         kernel=wp_render_backward_kernel,
