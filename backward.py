@@ -798,7 +798,6 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
-    print("compute_cov2d_backward_kernel done")
     # Step 2: Compute gradients for 3D means due to projection
     wp.launch(
         kernel=compute_projection_backward_kernel,
@@ -813,7 +812,6 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
-    print("compute_projection_backward_kernel done")
     # Step 3: Compute gradients for SH coefficients
     wp.launch(
         kernel=sh_backward_kernel,
@@ -833,7 +831,6 @@ def backward_preprocess(
         
         device=DEVICE
     )
-    print("sh_backward_kernel done")
     # Step 4: Compute gradients for scales and rotations
     wp.launch(
         kernel=compute_cov3d_backward_kernel,
@@ -850,12 +847,27 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
-    print("compute_cov3d_backward_kernel done")
-    print("================================================")
-    print("dL_dmeans", dL_dmeans)
-    print("dL_dsh", dL_dsh)
-    print("dL_dscales", dL_dscales)
-    print("dL_drots", dL_drots)
+    
+    # Check if gradients are all zeros
+    dL_dmeans_torch = wp.to_torch(dL_dmeans)
+    dL_dsh_torch = wp.to_torch(dL_dsh)
+    dL_dscales_torch = wp.to_torch(dL_dscales)
+    dL_drots_torch = wp.to_torch(dL_drots)
+    
+    # Print gradient statistics
+    print("\n--- Gradient Statistics after backward_preprocess ---")
+    print(f"dL_dmeans: all zeros = {torch.all(torch.abs(dL_dmeans_torch) < 1e-6).item()}, max = {torch.max(torch.abs(dL_dmeans_torch)).item()}, non-zero count = {torch.sum(torch.abs(dL_dmeans_torch) >= 1e-6).item()}")
+    print(f"dL_dsh: all zeros = {torch.all(torch.abs(dL_dsh_torch) < 1e-6).item()}, max = {torch.max(torch.abs(dL_dsh_torch)).item()}, non-zero count = {torch.sum(torch.abs(dL_dsh_torch) >= 1e-6).item()}")
+    print(f"dL_dscales: all zeros = {torch.all(torch.abs(dL_dscales_torch) < 1e-6).item()}, max = {torch.max(torch.abs(dL_dscales_torch)).item()}, non-zero count = {torch.sum(torch.abs(dL_dscales_torch) >= 1e-6).item()}")
+    print(f"dL_drots: all zeros = {torch.all(torch.abs(dL_drots_torch) < 1e-6).item()}, max = {torch.max(torch.abs(dL_drots_torch)).item()}, non-zero count = {torch.sum(torch.abs(dL_drots_torch) >= 1e-6).item()}")
+    
+    # If there are any non-zero gradients, print some examples
+    if not torch.all(torch.abs(dL_dmeans_torch) < 1e-6).item():
+        non_zero_indices = torch.nonzero(torch.abs(dL_dmeans_torch).sum(dim=1) >= 1e-6).squeeze().cpu().numpy()
+        print(f"\nSample non-zero dL_dmeans (indices {non_zero_indices[:5] if len(non_zero_indices) > 5 else non_zero_indices}):")
+        for idx in non_zero_indices[:5] if len(non_zero_indices) > 5 else non_zero_indices:
+            print(f"  {idx}: {dL_dmeans_torch[idx].cpu().numpy()}")
+    
     return dL_dmeans, dL_dsh, dL_dscales, dL_drots
 
 def backward_render(
@@ -1351,7 +1363,11 @@ def adam_update(
     v_shs: wp.array(dtype=wp.vec3),
     
     num_points: int,
-    lr: float,
+    lr_pos: float,
+    lr_scale: float,
+    lr_rot: float,
+    lr_opac: float,
+    lr_sh: float,
     beta1: float,
     beta2: float,
     epsilon: float,
@@ -1374,7 +1390,7 @@ def adam_update(
     v_pos_corrected = v_positions[i] / bias_correction2
     # Use the helper function for element-wise sqrt and division
     denominator_pos = wp_vec3_sqrt(v_pos_corrected) + wp.vec3(epsilon, epsilon, epsilon)
-    positions[i] = positions[i] - lr * wp_vec3_div_element(m_pos_corrected, denominator_pos)
+    positions[i] = positions[i] - lr_pos * wp_vec3_div_element(m_pos_corrected, denominator_pos)
     
     # Update scales (with some constraints to keep them positive)
     m_scales[i] = beta1 * m_scales[i] + (1.0 - beta1) * scale_grads[i]
@@ -1385,7 +1401,7 @@ def adam_update(
     v_scale_corrected = v_scales[i] / bias_correction2
     # Use the helper function for element-wise sqrt and division
     denominator_scale = wp_vec3_sqrt(v_scale_corrected) + wp.vec3(epsilon, epsilon, epsilon)
-    scale_update = lr * wp_vec3_div_element(m_scale_corrected, denominator_scale)
+    scale_update = lr_scale * wp_vec3_div_element(m_scale_corrected, denominator_scale)
     scales[i] = wp.vec3(
         wp.max(scales[i][0] - scale_update[0], 0.001),
         wp.max(scales[i][1] - scale_update[1], 0.001),
@@ -1411,10 +1427,10 @@ def adam_update(
         wp.sqrt(v_rot_corrected[3]) + epsilon
     )
     rot_update = wp.vec4(
-        lr * m_rot_corrected[0] / denominator_rot[0],
-        lr * m_rot_corrected[1] / denominator_rot[1],
-        lr * m_rot_corrected[2] / denominator_rot[2],
-        lr * m_rot_corrected[3] / denominator_rot[3]
+        lr_rot * m_rot_corrected[0] / denominator_rot[0],
+        lr_rot * m_rot_corrected[1] / denominator_rot[1],
+        lr_rot * m_rot_corrected[2] / denominator_rot[2],
+        lr_rot * m_rot_corrected[3] / denominator_rot[3]
     )
     rotations[i] = rotations[i] - rot_update
     
@@ -1440,7 +1456,7 @@ def adam_update(
     m_opacity_corrected = m_opacities[i] / bias_correction1
     v_opacity_corrected = v_opacities[i] / bias_correction2
     # Opacity is scalar, direct wp.sqrt is fine here
-    opacity_update = lr * m_opacity_corrected / (wp.sqrt(v_opacity_corrected) + epsilon)
+    opacity_update = lr_opac * m_opacity_corrected / (wp.sqrt(v_opacity_corrected) + epsilon)
     opacities[i] = wp.max(wp.min(opacities[i] - opacity_update, 1.0), 0.0)
     
     # Update SH coefficients
@@ -1454,4 +1470,4 @@ def adam_update(
         v_sh_corrected = v_shs[idx] / bias_correction2
         # Use the helper function for element-wise sqrt and division
         denominator_sh = wp_vec3_sqrt(v_sh_corrected) + wp.vec3(epsilon, epsilon, epsilon)
-        shs[idx] = shs[idx] - lr * wp_vec3_div_element(m_sh_corrected, denominator_sh)
+        shs[idx] = shs[idx] - lr_sh * wp_vec3_div_element(m_sh_corrected, denominator_sh)

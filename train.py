@@ -216,10 +216,10 @@ class NeRFGaussianSplattingTrainer:
 
         • For every camera, take its position P and its forward direction F
         (negative Z axis in NeRF-synthetic).
-        • March 1.0 world-unit along F (so P + F) – that’s roughly the object surface.
+        • March 1.0 world-unit along F (so P + F) – that's roughly the object surface.
         • Average those points.  Result ≈ centre of the lego excavator.
         • Return both the average centre and the average *backward* direction
-        (useful if you later need a canonical ‘view’ dir).
+        (useful if you later need a canonical 'view' dir).
         """
         pts_on_object = []
         back_dirs     = []
@@ -536,10 +536,23 @@ class NeRFGaussianSplattingTrainer:
         offs    = wp.to_torch(self.intermediate_buffers["point_offsets"]).cpu().numpy()
         num_dup = int(offs[-1]) if len(offs) else 0
         r_med   = np.median(radii[radii > 0]) if (radii > 0).any() else 0
+        
+        # Count visible Gaussians
+        xy_image = wp.to_torch(self.intermediate_buffers["points_xy_image"]).cpu().numpy()
+        W = self.cameras[camera_idx]['width']
+        H = self.cameras[camera_idx]['height']
+        visible_gaussians = np.sum(
+            (xy_image[:, 0] >= 0) & (xy_image[:, 0] < W) & 
+            (xy_image[:, 1] >= 0) & (xy_image[:, 1] < H) &
+            np.isfinite(xy_image).all(axis=1) &
+            (radii > 0)  # Only count Gaussians with positive radius
+        )
+        
         print(
             f"[it {it:05d}] dup={num_dup:<6} "
             f"r_med={r_med:5.1f}  α∈[{alphas.min():.3f},"
-            f"{np.median(alphas):.3f},{alphas.max():.3f}]"
+            f"{np.median(alphas):.3f},{alphas.max():.3f}] "
+            f"visible={visible_gaussians}/{len(xy_image)}"
         )
 
         # ------ save render / target PNG ---------------------------------
@@ -558,7 +571,8 @@ class NeRFGaussianSplattingTrainer:
         mask = (
             (xy[:, 0] >= 0) & (xy[:, 0] < W) &
             (xy[:, 1] >= 0) & (xy[:, 1] < H) &
-            np.isfinite(xy).all(axis=1)
+            np.isfinite(xy).all(axis=1) &
+            (radii > 0)  # Only include Gaussians with positive radius
         )
         if mask.any():
             plt.figure(figsize=(6, 6))
@@ -566,7 +580,7 @@ class NeRFGaussianSplattingTrainer:
                         s=4, c=depth[mask], cmap="turbo", alpha=.7)
             plt.gca().invert_yaxis()
             plt.xlim(0, W); plt.ylim(H, 0)
-            plt.title(f"Projected Gaussians (iter {it})")
+            plt.title(f"Projected Gaussians (iter {it}): {np.sum(mask)}/{len(xy)} visible")
             plt.colorbar(label="depth(z)")
             plt.tight_layout()
             plt.savefig(self.output_path / f"proj_{it:06d}.png", dpi=250)
@@ -622,14 +636,7 @@ class NeRFGaussianSplattingTrainer:
                     clamped=True
                 )
                 
-
-                                
-                
                 # self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
-                
-
-
-  
 
                 # Calculate L1 loss
                 l1_val = l1_loss(rendered_image, target_image)
@@ -723,35 +730,39 @@ class NeRFGaussianSplattingTrainer:
                 wp.copy(self.grads['opacities'], gradients['dL_dopacity'])
                 wp.copy(self.grads['shs'], gradients['dL_dshs'])
 
-                # Convert Warp arrays to numpy for statistics
-                pos_np = self.grads['positions'].numpy()
-                scales_np = self.grads['scales'].numpy()
-                rot_np = self.grads['rotations'].numpy()
-                opac_np = self.grads['opacities'].numpy()
-                shs_np = self.grads['shs'].numpy()
-                
-                print("self.grads['positions']", self.grads['positions'], np.max(pos_np), np.min(pos_np))
-                print("self.grads['scales']", self.grads['scales'], np.max(scales_np), np.min(scales_np))
-                print("self.grads['rotations']", self.grads['rotations'], np.max(rot_np), np.min(rot_np))
-                print("self.grads['opacities']", self.grads['opacities'], np.max(opac_np), np.min(opac_np))
-                print("self.grads['shs']", self.grads['shs'], np.max(shs_np), np.min(shs_np))
-                print("Rendered image mean:", wp.to_torch(rendered_image).mean().item(), wp.to_torch(rendered_image).max().item(), wp.to_torch(rendered_image).min().item())
-                print("Pixel gradient mean:", wp.to_torch(pixel_grad_buffer).abs().mean(), wp.to_torch(pixel_grad_buffer).abs().max(), wp.to_torch(pixel_grad_buffer).abs().min())
-                
+                original_position_grads = self.params['positions'].numpy().copy()
+                original_scale_grads = self.params['scales'].numpy().copy()
+                original_rotation_grads = self.params['rotations'].numpy().copy()
+                original_opacity_grads = self.params['opacities'].numpy().copy()
+                original_sh_grads = self.params['shs'].numpy().copy()
                 # Update parameters
                 self.optimizer_step(iteration)
-                
+                wp.synchronize()  
+                updated_position_grads = self.params['positions'].numpy().copy()
+                updated_scale_grads = self.params['scales'].numpy().copy()
+                updated_rotation_grads = self.params['rotations'].numpy().copy()
+                updated_opacity_grads = self.params['opacities'].numpy().copy()
+                updated_sh_grads = self.params['shs'].numpy().copy()
+                # # print diff
+                # print("================================================")
+                # print(np.abs(original_position_grads - updated_position_grads).max())
+                # print(np.abs(original_scale_grads - updated_scale_grads).max())
+                # print(np.abs(original_rotation_grads - updated_rotation_grads).max())
+                # print(np.abs(original_opacity_grads - updated_opacity_grads).max())
+                # print(np.abs(original_sh_grads - updated_sh_grads).max())
+                # print("================================================")
                 # Update progress bar
                 pbar.update(1)
                 pbar.set_description(f"Loss: {loss:.6f}")
                 
-                # Perform densification and pruning
-                self.densification_and_pruning(iteration)
+                # Perform densification and pruning every 2000 iterations
+                if iteration % self.config['densification_and_pruning_interval'] == 0:
+                    self.densification_and_pruning(iteration)
                 
                 # Save checkpoint
                 if iteration % self.config['save_interval'] == 0 or iteration == num_iterations - 1:
                     self.save_checkpoint(iteration)
-        
+
         print("Training complete!")
 
 
