@@ -567,6 +567,8 @@ def wp_render_backward_kernel(
     # Get final transparency value and number of contributors from forward pass
     T_final = final_Ts[pix_y, pix_x]
     last_contributor = n_contrib[pix_y, pix_x]
+    first_kept = max(range_start, range_end - last_contributor)   # = range_end-N
+
     
     # Initialize working variables
     T = T_final  # Current accumulated transparency
@@ -587,14 +589,9 @@ def wp_render_backward_kernel(
     ddelx_dx = 0.5 * float(W)
     ddely_dy = 0.5 * float(H)
     
-    
     # Process Gaussians in back-to-front order
-    for i in range(range_end - 1, range_start - 1, -1):
+    for i in range(range_end - 1, first_kept - 1, -1):
         gaussian_id = point_list[i]
-
-        # Skip if this Gaussian is behind the last contributor
-        if i >= last_contributor:
-            continue
             
         # Get Gaussian parameters
         xy = points_xy_image[gaussian_id]
@@ -608,7 +605,7 @@ def wp_render_backward_kernel(
         
         # Compute Gaussian power
         power = -0.5 * (con_o[0] * d_x * d_x + con_o[2] * d_y * d_y) - con_o[1] * d_x * d_y
-
+        
         # Skip if power is positive (too far away)
         if power > 0.0:
             continue
@@ -667,7 +664,7 @@ def wp_render_backward_kernel(
             dL_dG * dG_ddelx * ddelx_dx,
             dL_dG * dG_ddely * ddely_dy
         ))
-        print(dL_dmean2D[gaussian_id])
+        
         # Update gradients w.r.t. 2D conic matrix
         wp.atomic_add(dL_dconic2D, gaussian_id, wp.vec3(
             -0.5 * gdx * d_x * dL_dG,
@@ -801,7 +798,6 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
-    exit()
     print("compute_cov2d_backward_kernel done")
     # Step 2: Compute gradients for 3D means due to projection
     wp.launch(
@@ -910,9 +906,13 @@ def backward_render(
     tile_grid_x = (width + TILE_M - 1) // TILE_M
     tile_grid_y = (height + TILE_N - 1) // TILE_N
     # Check if dL_dpixels and dL_invdepths are all zeros
+    # Convert Warp arrays to PyTorch tensors for analysis
     dL_dpixels_torch = wp.to_torch(dL_dpixels)
-    dL_invdepths_torch = wp.to_torch(dL_invdepths)
-    
+    if use_invdepth:
+        dL_invdepths_torch = wp.to_torch(dL_invdepths)
+    else:
+        # Create a dummy tensor of zeros if inverse depth is not used
+        dL_invdepths_torch = torch.zeros_like(dL_dpixels_torch[:,:,0])
     # Check if all elements are zeros (or very close to zero)
     dpixels_all_zeros = torch.all(torch.abs(dL_dpixels_torch) < 1e-6).item()
     dinvdepths_all_zeros = torch.all(torch.abs(dL_invdepths_torch) < 1e-6).item()
@@ -956,11 +956,11 @@ def backward_render(
             dL_dinvdepths  # Added depth gradient output
         ],
     )
-    print("dL_dmean2D", dL_dmean2D)
-    print("dL_dconic2D", dL_dconic2D)
-    print("dL_dopacity", dL_dopacity)
-    print("dL_dcolors", dL_dcolors)
-    print("dL_dinvdepths", dL_dinvdepths)
+    # print("dL_dmean2D", dL_dmean2D)
+    # print("dL_dconic2D", dL_dconic2D)
+    # print("dL_dopacity", dL_dopacity)
+    # print("dL_dcolors", dL_dcolors)
+    # print("dL_dinvdepths", dL_dinvdepths)
     print("wp_render_backward_kernel done")
     
     # Convert to torch and print non-zero values
@@ -996,7 +996,7 @@ def backward_render(
     if len(non_zero_invdepths) > 0:
         print(dL_dinvdepths_torch[non_zero_invdepths[:, 0]])
     
-    exit()
+    # exit()
     # these should be output of 
     # float3* __restrict__ dL_dmean2D,
 	# float4* __restrict__ dL_dconic2D,

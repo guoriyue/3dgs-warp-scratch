@@ -591,27 +591,14 @@ class NeRFGaussianSplattingTrainer:
         with tqdm(total=num_iterations) as pbar:
             for iteration in range(num_iterations):
                 # Select a random camera and corresponding image
-                # camera_idx = np.random.randint(0, len(self.cameras))
-                camera_idx = 3
+                camera_idx = np.random.randint(0, len(self.cameras))
+                # camera_idx = 3
                 image_path = self.image_paths[camera_idx]
                 target_image = self.load_image(image_path)
                 
                 # Zero gradients
                 self.zero_grad()
-                print("self.params['positions'].numpy()", self.params['positions'].numpy().shape)
-                print("self.params['opacities'].numpy()", self.params['opacities'].numpy().shape)
-                print("self.params['scales'].numpy()", self.params['scales'].numpy().shape)
-                print("self.params['rotations'].numpy()", self.params['rotations'].numpy().shape)
-                print("self.params['shs'].numpy()", self.params['shs'].numpy().shape)
-                print("self.config['scale_modifier']", self.config['scale_modifier'])
-                print("self.cameras[camera_idx]['view_matrix']", self.cameras[camera_idx]['view_matrix'])
-                print("self.cameras[camera_idx]['proj_matrix']", self.cameras[camera_idx]['proj_matrix'])
-                print("self.cameras[camera_idx]['tan_fovx']", self.cameras[camera_idx]['tan_fovx'])
-                print("self.cameras[camera_idx]['tan_fovy']", self.cameras[camera_idx]['tan_fovy'])
-                print("self.cameras[camera_idx]['height']", self.cameras[camera_idx]['height'])
-                print("self.cameras[camera_idx]['width']", self.cameras[camera_idx]['width'])
-                print("self.cameras[camera_idx]['camera_pos']", self.cameras[camera_idx]['camera_pos'])
-                print("self.config['sh_degree']", self.config['sh_degree'])
+                
                 # Render the view
                 rendered_image, depth_image, self.intermediate_buffers = render_gaussians(
                     background=np.array(self.config['background_color'], dtype=np.float32),
@@ -638,7 +625,7 @@ class NeRFGaussianSplattingTrainer:
 
                                 
                 
-                self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
+                # self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
                 
 
 
