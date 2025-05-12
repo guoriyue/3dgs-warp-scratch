@@ -24,17 +24,18 @@ class GaussianParams:
     """Parameters for 3D Gaussian Splatting."""
 
     # Training parameters
-    num_iterations = 100  # Default number of training iterations
+    num_iterations = 1000  # Default number of training iterations
     learning_rate = 0.0001  # Learning rate for Adam optimizer
     lr_pos = 1e-2  # world-units
     lr_scale = 5e-3
     lr_rot = 5e-3
     lr_sh = 2e-3
     lr_opac = 5e-3
-    num_points = 5000  # Initial number of Gaussian points
+    num_points = 500  # Initial number of Gaussian points
 
     # Optimization parameters
-    densification_and_pruning_interval = 2000  # Perform densification every N iterations
+    densification_interval = 2000  # Perform densification every N iterations
+    pruning_interval = 2000  # Perform pruning every N iterations
     save_interval = 300  # Save checkpoint every N iterations
     adam_beta1 = 0.9  # Adam optimizer beta1 parameter
     adam_beta2 = 0.999  # Adam optimizer beta2 parameter
@@ -104,6 +105,11 @@ class GaussianParams:
         return {
             'num_iterations': cls.num_iterations,
             'learning_rate': cls.learning_rate,
+            'lr_pos': cls.lr_pos,
+            'lr_scale': cls.lr_scale,
+            'lr_rot': cls.lr_rot,
+            'lr_sh': cls.lr_sh,
+            'lr_opac': cls.lr_opac,
             'num_points': cls.num_points,
             'densification_interval': cls.densification_interval,
             'pruning_interval': cls.pruning_interval,

@@ -458,7 +458,11 @@ class NeRFGaussianSplattingTrainer:
                 
                 # Optimizer parameters
                 self.num_points,
-                self.config['learning_rate'],
+                self.config['lr_pos'],
+                self.config['lr_scale'],
+                self.config['lr_rot'],
+                self.config['lr_sh'],
+                self.config['lr_opac'],
                 self.config['adam_beta1'],
                 self.config['adam_beta2'],
                 self.config['adam_epsilon'],
@@ -605,8 +609,8 @@ class NeRFGaussianSplattingTrainer:
         with tqdm(total=num_iterations) as pbar:
             for iteration in range(num_iterations):
                 # Select a random camera and corresponding image
-                camera_idx = np.random.randint(0, len(self.cameras))
-                # camera_idx = 3
+                # camera_idx = np.random.randint(0, len(self.cameras))
+                camera_idx = 3
                 image_path = self.image_paths[camera_idx]
                 target_image = self.load_image(image_path)
                 
@@ -755,9 +759,7 @@ class NeRFGaussianSplattingTrainer:
                 pbar.update(1)
                 pbar.set_description(f"Loss: {loss:.6f}")
                 
-                # Perform densification and pruning every 2000 iterations
-                if iteration % self.config['densification_and_pruning_interval'] == 0:
-                    self.densification_and_pruning(iteration)
+                self.densification_and_pruning(iteration)
                 
                 # Save checkpoint
                 if iteration % self.config['save_interval'] == 0 or iteration == num_iterations - 1:
