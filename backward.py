@@ -1332,6 +1332,14 @@ def prune_gaussians(
         valid_mask[i] = 0
 
 
+@wp.func
+def wp_vec3_clamp(x: wp.vec3, min_val: float, max_val: float) -> wp.vec3:
+    return wp.vec3(
+        wp.clamp(x[0], min_val, max_val),
+        wp.clamp(x[1], min_val, max_val),
+        wp.clamp(x[2], min_val, max_val)
+    )
+
 @wp.kernel
 def adam_update(
     # Parameters
@@ -1376,6 +1384,17 @@ def adam_update(
     i = wp.tid()
     if i >= num_points:
         return
+    
+    # Clamp gradients to avoid exploding gradients
+    pos_grads[i] = wp_vec3_clamp(pos_grads[i], -1e3, 1e3)
+    scale_grads[i] = wp_vec3_clamp(scale_grads[i], -1e3, 1e3)
+    rot_grads[i] = wp.vec4(
+        wp.clamp(rot_grads[i][0], -1e3, 1e3),
+        wp.clamp(rot_grads[i][1], -1e3, 1e3),
+        wp.clamp(rot_grads[i][2], -1e3, 1e3),
+        wp.clamp(rot_grads[i][3], -1e3, 1e3)
+    )
+    opacity_grads[i] = wp.clamp(opacity_grads[i], -100.0, 100.0)
     
     # Bias correction terms
     bias_correction1 = 1.0 - wp.pow(beta1, float(iteration + 1))
@@ -1471,3 +1490,13 @@ def adam_update(
         # Use the helper function for element-wise sqrt and division
         denominator_sh = wp_vec3_sqrt(v_sh_corrected) + wp.vec3(epsilon, epsilon, epsilon)
         shs[idx] = shs[idx] - lr_sh * wp_vec3_div_element(m_sh_corrected, denominator_sh)
+
+    
+    opacities[i] = wp.clamp(opacities[i], 1e-4, 0.20)
+
+    # 3) scales 更新完立刻裁剪
+    scales[i] = wp.vec3(
+        wp.clamp(scales[i][0], 1e-3, 0.30),
+        wp.clamp(scales[i][1], 1e-3, 0.30),
+        wp.clamp(scales[i][2], 1e-3, 0.30),
+    )

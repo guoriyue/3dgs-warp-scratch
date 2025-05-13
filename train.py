@@ -609,8 +609,8 @@ class NeRFGaussianSplattingTrainer:
         with tqdm(total=num_iterations) as pbar:
             for iteration in range(num_iterations):
                 # Select a random camera and corresponding image
-                # camera_idx = np.random.randint(0, len(self.cameras))
-                camera_idx = 3
+                camera_idx = np.random.randint(0, len(self.cameras))
+                # camera_idx = 3
                 image_path = self.image_paths[camera_idx]
                 target_image = self.load_image(image_path)
                 
@@ -640,7 +640,8 @@ class NeRFGaussianSplattingTrainer:
                     clamped=True
                 )
                 
-                # self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
+                if iteration % 50 == 0:
+                    self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
 
                 # Calculate L1 loss
                 l1_val = l1_loss(rendered_image, target_image)
@@ -755,6 +756,19 @@ class NeRFGaussianSplattingTrainer:
                 # print(np.abs(original_opacity_grads - updated_opacity_grads).max())
                 # print(np.abs(original_sh_grads - updated_sh_grads).max())
                 # print("================================================")
+                
+                
+                print('α max / mean',  np.max(self.params['opacities']), np.mean(self.params['opacities']))
+                print('σ max',          np.max(self.params['scales']))
+                print('|grad| max positions', np.max(np.abs(self.grads['positions'].numpy())))
+                grad_scale = np.max(np.abs(self.grads['scales'].numpy()))
+                grad_rot = np.max(np.abs(self.grads['rotations'].numpy()))
+                grad_sh = np.max(np.abs(self.grads['shs'].numpy()))
+                grad_opac = np.max(np.abs(self.grads['opacities'].numpy()))
+                print('grad_scale', np.max(np.abs(self.grads['scales'].numpy())), np.mean(np.abs(self.grads['scales'].numpy())))
+                print('grad_rot', np.max(np.abs(self.grads['rotations'].numpy())), np.mean(np.abs(self.grads['rotations'].numpy())))
+                print('grad_sh', np.max(np.abs(self.grads['shs'].numpy())), np.mean(np.abs(self.grads['shs'].numpy())))
+                print('grad_opac', np.max(np.abs(self.grads['opacities'].numpy())), np.mean(np.abs(self.grads['opacities'].numpy())))
                 # Update progress bar
                 pbar.update(1)
                 pbar.set_description(f"Loss: {loss:.6f}")
