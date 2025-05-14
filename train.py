@@ -322,7 +322,8 @@ class NeRFGaussianSplattingTrainer:
             znear = self.config['near']
             zfar = self.config['far']
             proj_matrix = projection_matrix(fovx=fovx, fovy=fovy, znear=znear, zfar=zfar)
-            
+            full_proj_matrix = world2cam.T @ proj_matrix.T
+
             # Calculate other parameters
             tan_fovx = np.tan(fovx * 0.5)
             tan_fovy = np.tan(fovy * 0.5)
@@ -334,6 +335,7 @@ class NeRFGaussianSplattingTrainer:
                 'R': rotation_c2w.T,
                 'view_matrix': world2cam.T,
                 'proj_matrix': proj_matrix.T,
+                'full_proj_matrix': full_proj_matrix,
                 'tan_fovx': tan_fovx,
                 'tan_fovy': tan_fovy,
                 'focal_x': focal,
@@ -639,6 +641,7 @@ class NeRFGaussianSplattingTrainer:
                 print("self.params['opacities'].numpy()", self.params['opacities'].numpy().shape, self.params['opacities'].numpy().flatten()[:100])
                 print("self.params['shs'].numpy()", self.params['shs'].numpy().shape, self.params['shs'].numpy().flatten()[:100])
                 print("self.cameras[camera_idx]", self.cameras[camera_idx])
+                print("self.cameras[camera_idx]['full_proj_matrix']", self.cameras[camera_idx]['full_proj_matrix'])
                 exit()
                 # Render the view
                 rendered_image, depth_image, self.intermediate_buffers = render_gaussians(
