@@ -7,7 +7,6 @@ import json
 from tqdm import tqdm
 from pathlib import Path
 import argparse
-import cv2
 
 # Import the renderer and constants
 from forward import render_gaussians
@@ -15,7 +14,10 @@ from backward import backward, densify_gaussians, prune_gaussians, adam_update
 from config import *
 from utils import *
 from loss import l1_loss, ssim, compute_image_gradients, depth_loss
-                    
+
+            
+
+        
 # Initialize Warp
 wp.init()
 
@@ -36,15 +38,14 @@ def init_gaussian_params(
         return
     
     # Initialize positions with random values
-    # Generate random positions using a single seed derived from the index
-    seed = i
-    
+    # Generate random positions using warp random
     offset = wp.vec3(
-        wp.randn(wp.uint32(seed)) * 0.7,
-        wp.randn(wp.uint32(seed + 1)) * 0.7,
-        wp.randn(wp.uint32(seed + 2)) * 0.7,
+        (wp.randf(wp.uint32(1.0)) * 2.6 - 1.3),
+        (wp.randf(wp.uint32(1.0)) * 2.6 - 1.3),
+        (wp.randf(wp.uint32(1.0)) * 2.6 - 1.3)
     )
-    positions[i] = camera_center + offset
+    # camera_center
+    positions[i] =  offset
     
     # Initialize scales
     scales[i] = wp.vec3(init_scale, init_scale, init_scale)
@@ -53,17 +54,16 @@ def init_gaussian_params(
     rotations[i] = wp.vec4(0.0, 0.0, 0.0, 1.0)
     
     # Initialize opacities
-    opacities[i] = 0.5
+    opacities[i] = 0.1
     
     # Initialize SH coefficients (just DC term for now)
     for j in range(16):  # degree=3, total 16 coefficients
         idx = i * 16 + j
         # Slight random initialization with positive bias
-        shs[idx] = wp.vec3(
-            wp.clamp(wp.randn(wp.uint32(seed + j * 100)) * 0.3 + 0.5, 0.0, 1.0),
-            wp.clamp(wp.randn(wp.uint32(seed + j * 100 + 1)) * 0.3 + 0.5, 0.0, 1.0),
-            wp.clamp(wp.randn(wp.uint32(seed + j * 100 + 2)) * 0.3 + 0.5, 0.0, 1.0),
-        )
+        if j == 0:
+            shs[idx] = wp.vec3(-0.007, -0.007, -0.007)
+        else:
+            shs[idx] = wp.vec3(0.0, 0.0, 0.0)
 
 @wp.kernel
 def zero_gradients(
@@ -279,33 +279,41 @@ class NeRFGaussianSplattingTrainer:
         cameras = []
         image_paths = []
         
+        convert_mat = np.array([
+            [1,  0,  0],   # x stays
+            [0, -1,  0],   # y flips
+            [0,  0, -1],   # z flips
+        ], dtype=np.float32)
+
+
         # Process each frame
         for i, frame in enumerate(transforms['frames']):
-            # Extract camera-to-world transform matrix
+            # Step 1: Extract camera-to-world transform
             cam2world = np.array(frame['transform_matrix'], dtype=np.float32)
             
-            # Extract camera position (translation part of cam2world)
-            position = cam2world[:3, 3]
+            image_paths.append(str(self.dataset_path / f"{frame['file_path']}.png"))
+
+            # Step 2: Extract and convert rotation
+            raw_rotation = cam2world[:3, :3]
+            convert_mat = np.array([[1, 0, 0],
+                                    [0, -1, 0],
+                                    [0, 0, -1]], dtype=np.float32)
+            rotation_c2w = raw_rotation @ convert_mat
+
+            # Step 3: Compute position in converted basis
+            position_c2w = cam2world[:3, 3]
             
-            # Extract rotation (rotation part of cam2world)
-            rotation = cam2world[:3, :3]
             
-            # Get image path
-            img_path = str(self.dataset_path / f"{frame['file_path']}.png")
-            image_paths.append(img_path)
-            
-            # For our renderer, we need world-to-camera transform
-            world2cam = np.zeros((4, 4), dtype=np.float32)
-            world2cam[:3, :3] = rotation.T  # Transpose for inverse rotation
-            world2cam[:3, 3] = -rotation.T @ position  # -R^T * t for translation
-            world2cam[3, 3] = 1.0
-            
-            # FIX: Adjust view matrix to match the forward renderer expectation
-            # Inverting the sign of the 3rd row to flip Z direction
-            # This makes OpenGL-style coordinate systems work correctly with our renderer
-            view_matrix = world2cam.copy()
-            view_matrix[2, :] = -view_matrix[2, :]  # Flip Z row
-            
+
+            # Step 4: Compute world-to-camera transform
+            rotation_w2c = rotation_c2w.T  # Invert rotation
+            translation_w2c = -rotation_w2c @ position_c2w
+
+            world2cam = np.eye(4, dtype=np.float32)
+            world2cam[:3, :3] = rotation_w2c
+            world2cam[:3, 3] = translation_w2c
+
+                        
             # Calculate fov from focal length
             fovx = 2 * np.arctan(width / (2 * focal))
             fovy = 2 * np.arctan(height / (2 * focal))
@@ -322,10 +330,10 @@ class NeRFGaussianSplattingTrainer:
             # Initialize camera dictionary
             camera = {
                 'id': i,
-                'camera_pos': position,
-                'R': rotation,
-                'view_matrix': view_matrix,
-                'proj_matrix': proj_matrix,
+                'camera_pos': position_c2w,
+                'R': rotation_c2w.T,
+                'view_matrix': world2cam.T,
+                'proj_matrix': proj_matrix.T,
                 'tan_fovx': tan_fovx,
                 'tan_fovy': tan_fovy,
                 'focal_x': focal,
@@ -609,7 +617,8 @@ class NeRFGaussianSplattingTrainer:
         with tqdm(total=num_iterations) as pbar:
             for iteration in range(num_iterations):
                 # Select a random camera and corresponding image
-                camera_idx = np.random.randint(0, len(self.cameras))
+                # camera_idx = np.random.randint(0, len(self.cameras))
+                camera_idx = 42
                 # camera_idx = 3
                 image_path = self.image_paths[camera_idx]
                 target_image = self.load_image(image_path)
@@ -617,6 +626,20 @@ class NeRFGaussianSplattingTrainer:
                 # Zero gradients
                 self.zero_grad()
                 
+                print('scale', self.params['scales'].numpy())
+                print('rotation', self.params['rotations'].numpy())
+                print('sh', self.params['shs'].numpy())
+                print('opacity', self.params['opacities'].numpy())
+                print('position', self.params['positions'].numpy())
+                print('===============================================')
+                print('self.cameras[camera_idx]', self.cameras[camera_idx])
+                print("self.params['positions'].numpy()", self.params['positions'].numpy().shape, self.params['positions'].numpy().flatten()[:100])
+                print("self.params['scales'].numpy()", self.params['scales'].numpy().shape, self.params['scales'].numpy().flatten()[:100])
+                print("self.params['rotations'].numpy()", self.params['rotations'].numpy().shape, self.params['rotations'].numpy().flatten()[:100])
+                print("self.params['opacities'].numpy()", self.params['opacities'].numpy().shape, self.params['opacities'].numpy().flatten()[:100])
+                print("self.params['shs'].numpy()", self.params['shs'].numpy().shape, self.params['shs'].numpy().flatten()[:100])
+                print("self.cameras[camera_idx]", self.cameras[camera_idx])
+                exit()
                 # Render the view
                 rendered_image, depth_image, self.intermediate_buffers = render_gaussians(
                     background=np.array(self.config['background_color'], dtype=np.float32),

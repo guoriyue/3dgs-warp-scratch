@@ -4,7 +4,10 @@ Configuration settings and constants for 3D Gaussian Splatting with NeRF dataset
 import warp as wp
 import torch
 import numpy as np
+import random
 
+SEED = 42
+random.seed(SEED)
 
 # Warp data types and constants (keep capitalized as they are types)
 WP_FLOAT16 = wp.float16
