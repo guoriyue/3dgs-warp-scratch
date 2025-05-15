@@ -665,6 +665,8 @@ class NeRFGaussianSplattingTrainer:
                     antialiasing=False,
                     clamped=True
                 )
+                print('rendered_image', rendered_image.shape, rendered_image.flatten()[:100])
+                print("radii", self.intermediate_buffers['radii'].shape, self.intermediate_buffers['radii'].flatten()[:100])
                 self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
                 exit()
                 if iteration % 50 == 0:
