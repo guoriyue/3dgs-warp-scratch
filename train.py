@@ -40,9 +40,9 @@ def init_gaussian_params(
     # Initialize positions with random values
     # Generate random positions using warp random
     offset = wp.vec3(
-        (wp.randf(wp.uint32(1.0)) * 2.6 - 1.3),
-        (wp.randf(wp.uint32(1.0)) * 2.6 - 1.3),
-        (wp.randf(wp.uint32(1.0)) * 2.6 - 1.3)
+        (wp.randf(wp.uint32(i * 3)) * 2.6 - 1.3),
+        (wp.randf(wp.uint32(i * 3 + 1)) * 2.6 - 1.3),
+        (wp.randf(wp.uint32(i * 3 + 2)) * 2.6 - 1.3)
     )
     # camera_center
     positions[i] =  offset
@@ -51,7 +51,7 @@ def init_gaussian_params(
     scales[i] = wp.vec3(init_scale, init_scale, init_scale)
     
     # Initialize rotations to identity matrix
-    rotations[i] = wp.vec4(0.0, 0.0, 0.0, 1.0)
+    rotations[i] = wp.vec4(1.0, 0.0, 0.0, 0.0)
     
     # Initialize opacities
     opacities[i] = 0.1
@@ -642,7 +642,7 @@ class NeRFGaussianSplattingTrainer:
                 print("self.params['shs'].numpy()", self.params['shs'].numpy().shape, self.params['shs'].numpy().flatten()[:100])
                 print("self.cameras[camera_idx]", self.cameras[camera_idx])
                 print("self.cameras[camera_idx]['full_proj_matrix']", self.cameras[camera_idx]['full_proj_matrix'])
-                exit()
+                
                 # Render the view
                 rendered_image, depth_image, self.intermediate_buffers = render_gaussians(
                     background=np.array(self.config['background_color'], dtype=np.float32),
@@ -665,7 +665,8 @@ class NeRFGaussianSplattingTrainer:
                     antialiasing=False,
                     clamped=True
                 )
-                
+                self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
+                exit()
                 if iteration % 50 == 0:
                     self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
 
