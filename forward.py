@@ -143,7 +143,8 @@ def wp_preprocess(
     p_hom = proj_matrix * p_hom
     p_w = 1.0 / (p_hom[3] + 0.0000001)
     p_proj = wp.vec3(p_hom[0] * p_w, p_hom[1] * p_w, p_hom[2] * p_w)
-    
+
+
     cov3d = compute_cov3d(scales[i], scale_modifier, rotations[i])
     cov3Ds[i] = cov3d
     # Compute 2D covariance matrix
@@ -629,6 +630,9 @@ def render_gaussians(
         print(f"Colors: {'from SH' if colors is None else 'provided'}, SH degree: {degree}")
         print(f"Antialiasing: {antialiasing}, Prefiltered: {prefiltered}")
 
+    torch_points_warp = wp.to_torch(points_warp).cpu().numpy()
+    print("torch_points_warp", torch_points_warp.shape, torch_points_warp.flatten()[:100])
+    exit()
     # Launch preprocessing kernel
     wp.launch(
         kernel=wp_preprocess,
@@ -637,7 +641,7 @@ def render_gaussians(
             points_warp,               # orig_points
             scales_warp,               # scales
             scale_modifier,            # scale_modifier
-            rotations_warp,       # rotations_quat
+            rotations_warp,           # rotations_quat
             opacities_warp,            # opacities
             shs_warp,                  # shs
             degree,
