@@ -13,9 +13,7 @@ from forward import render_gaussians
 from backward import backward, densify_gaussians, prune_gaussians, adam_update
 from config import *
 from utils.math_utils import projection_matrix
-# from utils.camera_utils import *
-# from utils.point_cloud_utils import *
-# from utils.math_utils import *
+from utils.camera_utils import load_camera
 from loss import l1_loss, ssim, compute_image_gradients, depth_loss
 
             
@@ -238,75 +236,26 @@ class NeRFGaussianSplattingTrainer:
         cameras = []
         image_paths = []
         
-        convert_mat = np.array([
-            [1,  0,  0],   # x stays
-            [0, -1,  0],   # y flips
-            [0,  0, -1],   # z flips
-        ], dtype=np.float32)
-
-
         # Process each frame
         for i, frame in enumerate(transforms['frames']):
-            # Step 1: Extract camera-to-world transform
-            cam2world = np.array(frame['transform_matrix'], dtype=np.float32)
-            
-            image_paths.append(str(self.dataset_path / f"{frame['file_path']}.png"))
-
-            # Step 2: Extract and convert rotation
-            raw_rotation = cam2world[:3, :3]
-            convert_mat = np.array([[1, 0, 0],
-                                    [0, -1, 0],
-                                    [0, 0, -1]], dtype=np.float32)
-            rotation_c2w = raw_rotation @ convert_mat
-
-            # Step 3: Compute position in converted basis
-            position_c2w = cam2world[:3, 3]
-            
-            
-
-            # Step 4: Compute world-to-camera transform
-            rotation_w2c = rotation_c2w.T  # Invert rotation
-            translation_w2c = -rotation_w2c @ position_c2w
-
-            world2cam = np.eye(4, dtype=np.float32)
-            world2cam[:3, :3] = rotation_w2c
-            world2cam[:3, 3] = translation_w2c
-
-                        
-            # Calculate fov from focal length
-            fovx = 2 * np.arctan(width / (2 * focal))
-            fovy = 2 * np.arctan(height / (2 * focal))
-            
-            # Create projection matrix
-            znear = self.config['near']
-            zfar = self.config['far']
-            proj_matrix = projection_matrix(fovx=fovx, fovy=fovy, znear=znear, zfar=zfar)
-            full_proj_matrix = world2cam.T @ proj_matrix.T
-
-            # Calculate other parameters
-            tan_fovx = np.tan(fovx * 0.5)
-            tan_fovy = np.tan(fovy * 0.5)
-            
-            # Initialize camera dictionary
-            camera = {
-                'id': i,
-                'camera_pos': position_c2w,
-                'R': rotation_c2w.T,
-                'view_matrix': world2cam.T,
-                'proj_matrix': proj_matrix.T,
-                'full_proj_matrix': full_proj_matrix,
-                'tan_fovx': tan_fovx,
-                'tan_fovy': tan_fovy,
-                'focal_x': focal,
-                'focal_y': focal,
-                'width': width,
-                'height': height,
-                'depth_reliable': False,  # Initialize depth reliability flag
-                'invdepthmap': None,      # Initialize inverse depth map
-                'depth_mask': None        # Initialize depth mask
+            # Create a temporary camera.json file for this frame
+            camera_info = {
+                "camera_id": i,
+                "position": frame['transform_matrix'][:3, 3].tolist(),
+                "rotation": frame['transform_matrix'][:3, :3].tolist(),
+                "width": width,
+                "height": height,
+                "fx": focal,
+                "fy": focal
             }
             
-            cameras.append(camera)
+            # Load camera parameters using existing function
+            camera_params = load_camera(camera_info)
+            
+            
+            if camera_params is not None:
+                cameras.append(camera_params)
+                image_paths.append(str(self.dataset_path / f"{frame['file_path']}.png"))
         
         return cameras, image_paths
     

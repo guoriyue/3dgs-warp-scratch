@@ -1,6 +1,5 @@
-import numpy as np
 import warp as wp
-import math
+from utils.wp_utils import to_warp_array
 from config import *
 # Initialize Warp
 wp.init()
@@ -589,21 +588,6 @@ def render_gaussians(
     # Create additional buffers for tracking transparency and contributors
     final_Ts = wp.zeros((image_height, image_width), dtype=float, device=DEVICE)
     n_contrib = wp.zeros((image_height, image_width), dtype=int, device=DEVICE)
-
-    def to_warp_array(data, dtype, shape_check=None, flatten=False):
-        if isinstance(data, wp.array):
-            return data
-        if data is None:
-            return None
-        # Convert torch tensor to numpy if needed
-        if hasattr(data, 'cpu') and hasattr(data, 'numpy'):
-            data = data.cpu().numpy()
-        if flatten and data.ndim == 2 and data.shape[1] == 1:
-            data = data.flatten()
-        if shape_check and data.shape[1:] != shape_check:
-            if debug:
-                print(f"Warning: Expected shape {shape_check}, got {data.shape[1:]}")
-        return wp.array(data, dtype=dtype, device=DEVICE)
 
     background_warp = wp.vec3(background[0], background[1], background[2])
     points_warp = to_warp_array(means3D, wp.vec3)

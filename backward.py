@@ -1,8 +1,7 @@
-# Add these to wp_kernels.py
-
 import numpy as np
 import warp as wp
 import math
+from utils.wp_utils import to_warp_array
 from config import * # Assuming TILE_M, TILE_N, VEC6, DEVICE are defined here
 
 # Initialize Warp if not already done elsewhere
@@ -1107,23 +1106,7 @@ def backward(
     # Calculate focal lengths from FoV
     focal_y = image_height / (2.0 * tan_fovy)
     focal_x = image_width / (2.0 * tan_fovx)
-    
-    def to_warp_array(data, dtype, shape_check=None, flatten=False):
-        """Helper function to convert various input types to warp arrays."""
-        if isinstance(data, wp.array):
-            return data
-        if data is None:
-            return None
-        # Convert torch tensor to numpy if needed
-        if hasattr(data, 'cpu') and hasattr(data, 'numpy'):
-            data = data.cpu().numpy()
-        if flatten and data.ndim == 2 and data.shape[1] == 1:
-            data = data.flatten()
-        if shape_check and data.shape[1:] != shape_check:
-            if debug:
-                print(f"Warning: Expected shape {shape_check}, got {data.shape[1:]}")
-        return wp.array(data, dtype=dtype, device=DEVICE)
-    
+
     # Convert inputs to warp arrays
     background_warp = background if isinstance(background, wp.vec3) else wp.vec3(background[0], background[1], background[2])
     means3D_warp = to_warp_array(means3D, wp.vec3)
