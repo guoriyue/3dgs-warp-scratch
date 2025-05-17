@@ -1,19 +1,15 @@
-import numpy as np
+
 import warp as wp
 import math
-from utils.wp_utils import to_warp_array
+from utils.wp_utils import to_warp_array, wp_vec3_mul_element, wp_vec3_add_element, wp_vec3_sqrt, wp_vec3_div_element
 from config import * # Assuming TILE_M, TILE_N, VEC6, DEVICE are defined here
 
 # Initialize Warp if not already done elsewhere
 # wp.init()
 
-
-
 # --- Spherical Harmonics Constants ---
 SH_C0 = 0.28209479177387814
 SH_C1 = 0.4886025119029199
-
-
 
 @wp.func
 def dnormvdv(v: wp.vec3, dv: wp.vec3) -> wp.vec3:
