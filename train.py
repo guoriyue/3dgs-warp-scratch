@@ -430,14 +430,14 @@ class NeRFGaussianSplattingTrainer:
             rotations=self.params['rotations'].numpy(),
             scale_modifier=self.config['scale_modifier'],
             viewmatrix=self.cameras[camera_idx]['view_matrix'],
-            projmatrix=self.cameras[camera_idx]['proj_matrix'],
+            projmatrix=self.cameras[camera_idx]['full_proj_matrix'],
             tan_fovx=self.cameras[camera_idx]['tan_fovx'],
             tan_fovy=self.cameras[camera_idx]['tan_fovy'],
             image_height=self.cameras[camera_idx]['height'],
             image_width=self.cameras[camera_idx]['width'],
             sh=self.params['shs'].numpy(),  # Pass SH coefficients
             degree=self.config['sh_degree'],
-            campos=self.cameras[camera_idx]['T'],
+            campos=self.cameras[camera_idx]['camera_center'],
             prefiltered=False,
             antialiasing=True,
             clamped=True
@@ -541,7 +541,6 @@ class NeRFGaussianSplattingTrainer:
                 
                 # Zero gradients
                 self.zero_grad()
-                
                 # Render the view
                 rendered_image, depth_image, self.intermediate_buffers = render_gaussians(
                     background=np.array(self.config['background_color'], dtype=np.float32),
@@ -552,14 +551,14 @@ class NeRFGaussianSplattingTrainer:
                     rotations=self.params['rotations'].numpy(),
                     scale_modifier=self.config['scale_modifier'],
                     viewmatrix=self.cameras[camera_idx]['view_matrix'],
-                    projmatrix=self.cameras[camera_idx]['proj_matrix'],
+                    projmatrix=self.cameras[camera_idx]['full_proj_matrix'],
                     tan_fovx=self.cameras[camera_idx]['tan_fovx'],
                     tan_fovy=self.cameras[camera_idx]['tan_fovy'],
                     image_height=self.cameras[camera_idx]['height'],
                     image_width=self.cameras[camera_idx]['width'],
                     sh=self.params['shs'].numpy(),  # Pass SH coefficients
                     degree=self.config['sh_degree'],
-                    campos=self.cameras[camera_idx]['T'],
+                    campos=self.cameras[camera_idx]['camera_center'],
                     prefiltered=False,
                     antialiasing=False,
                     clamped=True
@@ -588,8 +587,8 @@ class NeRFGaussianSplattingTrainer:
                 # Prepare camera parameters
                 camera = self.cameras[camera_idx]
                 view_matrix = wp.mat44(camera['view_matrix'].flatten())
-                proj_matrix = wp.mat44(camera['proj_matrix'].flatten())
-                campos = wp.vec3(camera['T'][0], camera['T'][1], camera['T'][2])
+                proj_matrix = wp.mat44(camera['full_proj_matrix'].flatten())
+                campos = wp.vec3(camera['camera_center'][0], camera['camera_center'][1], camera['camera_center'][2])
 
                 # Create appropriate buffer dictionaries for the backward pass
                 geom_buffer = {

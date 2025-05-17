@@ -135,7 +135,7 @@ def wp_preprocess(
     p_orig = orig_points[i]
     
     p_view = in_frustum(p_orig, view_matrix)
-
+    
     if p_view[2] <= 0.2:
         return
     
@@ -143,7 +143,7 @@ def wp_preprocess(
     p_hom = proj_matrix * p_hom
     p_w = 1.0 / (p_hom[3] + 0.0000001)
     p_proj = wp.vec3(p_hom[0] * p_w, p_hom[1] * p_w, p_hom[2] * p_w)
-
+    print(p_proj)
 
     cov3d = compute_cov3d(scales[i], scale_modifier, rotations[i])
     cov3Ds[i] = cov3d
@@ -629,10 +629,10 @@ def render_gaussians(
         print(f"\nWARP RENDERING: {image_width}x{image_height} image, {num_points} gaussians")
         print(f"Colors: {'from SH' if colors is None else 'provided'}, SH degree: {degree}")
         print(f"Antialiasing: {antialiasing}, Prefiltered: {prefiltered}")
-
-    torch_points_warp = wp.to_torch(points_warp).cpu().numpy()
-    print("torch_points_warp", torch_points_warp.shape, torch_points_warp.flatten()[:100])
-    exit()
+    
+    print("view_matrix", view_matrix_warp)
+    print("proj_matrix", proj_matrix_warp)
+    print("campos", campos_warp)
     # Launch preprocessing kernel
     wp.launch(
         kernel=wp_preprocess,
@@ -641,7 +641,7 @@ def render_gaussians(
             points_warp,               # orig_points
             scales_warp,               # scales
             scale_modifier,            # scale_modifier
-            rotations_warp,           # rotations_quat
+            rotations_warp,            # rotations_quat
             opacities_warp,            # opacities
             shs_warp,                  # shs
             degree,
@@ -673,7 +673,6 @@ def render_gaussians(
     print("torch_points_xy_image", torch_points_xy_image.shape, torch_points_xy_image.flatten()[:100])
     # print how many has values
     print("number of points with values", np.sum(torch_points_xy_image[:, 0] != 0.0))
-    # exit()
     point_offsets = wp.zeros(num_points, dtype=int, device=DEVICE)
     wp.launch(
         kernel=wp_prefix_sum,
@@ -794,8 +793,8 @@ def render_gaussians(
             ]
         )
 
-    print("radii", radii.shape, radii.flatten()[:100])
-    exit()
+    # print("radii", radii.shape, radii.flatten()[:100])
+    # exit()
     # Return rendered image, depth image, and intermediate buffers needed for backward pass
     return rendered_image, depth_image, {
         "radii": radii,

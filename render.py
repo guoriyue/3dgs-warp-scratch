@@ -23,6 +23,10 @@ def setup_example_scene(image_width=1800, image_height=1800, fovx=45.0, fovy=45.
     # Compute matrices
     view_matrix = world_to_view(R=R, t=T)
     proj_matrix = projection_matrix(fovx=fovx, fovy=fovy, znear=znear, zfar=zfar)
+    full_proj_matrix = view_matrix @ proj_matrix
+    
+    world_to_camera = np.linalg.inv(view_matrix).T
+    camera_center = np.linalg.inv(world_to_camera)[3, :3]
     
     # Compute FOV parameters
     tan_fovx = math.tan(fovx * 0.5)
@@ -32,10 +36,12 @@ def setup_example_scene(image_width=1800, image_height=1800, fovx=45.0, fovy=45.
     focal_y = image_height / (2 * tan_fovy)
     
     camera_params = {
-        'T': T,
         'R': R,
+        'T': T,
+        'camera_center': camera_center,
         'view_matrix': view_matrix,
         'proj_matrix': proj_matrix,
+        'full_proj_matrix': full_proj_matrix,
         'tan_fovx': tan_fovx,
         'tan_fovy': tan_fovy,
         'focal_x': focal_x,
@@ -142,7 +148,7 @@ if __name__ == "__main__":
                     
                 # Print camera info for debugging
                 print(f"Camera parameters:")
-                print(f"  - Position: {camera_params['T']}")
+                print(f"  - Position: {camera_params['camera_center']}")
                 print(f"  - View matrix: \n{camera_params['view_matrix']}")
                 print(f"  - Projection matrix: \n{camera_params['proj_matrix']}")
             
@@ -187,7 +193,7 @@ if __name__ == "__main__":
         print("image_width", args.width)
         print("shs", shs.shape)
         print("degree", sh_degree)
-        print("campos", camera_params['T'])
+        print("campos", camera_params['camera_center'])
         print("prefiltered", prefiltered)
         print("antialiasing", antialiasing)
         print("clamped", clamped)
@@ -202,14 +208,14 @@ if __name__ == "__main__":
         rotations=rotations,
         scale_modifier=scale_modifier,
         viewmatrix=camera_params['view_matrix'],
-        projmatrix=camera_params['proj_matrix'],
+        projmatrix=camera_params['full_proj_matrix'],
         tan_fovx=camera_params['tan_fovx'],
         tan_fovy=camera_params['tan_fovy'],
         image_height=args.height,
         image_width=args.width,
         sh=shs,
         degree=sh_degree,
-        campos=camera_params['T'],
+        campos=camera_params['camera_center'],
         prefiltered=prefiltered,
         antialiasing=antialiasing,
         clamped=clamped,

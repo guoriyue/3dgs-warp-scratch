@@ -5,7 +5,6 @@ import numpy as np
 from utils.math_utils import world_to_view, projection_matrix
 
 # Y down, Z forward
-    
 def load_camera(camera_info):
     """Load camera parameters from camera info dictionary"""
     # Extract camera parameters
@@ -18,10 +17,13 @@ def load_camera(camera_info):
     # Calculate world to camera transform
     world_to_camera = np.linalg.inv(camera_to_world).astype(np.float32)
     
+    
     # Extract rotation and translation
     R = world_to_camera[:3, :3]
     T = world_to_camera[:3, 3]
     
+    
+    world_to_camera = world_to_camera.T
     
     width = camera_info.get("width")
     height = camera_info.get("height")
@@ -35,17 +37,19 @@ def load_camera(camera_info):
     fovy = 2 * np.arctan(height / (2 * fy))
     
     # Create view matrix
-    view_matrix = world_to_view(R=R, t=T)
+    view_matrix = world_to_view(R=R, t=T).T
     
     # Create projection matrix
     znear = 0.01
     zfar = 100.0
-    proj_matrix = projection_matrix(fovx=fovx, fovy=fovy, znear=znear, zfar=zfar)
+    proj_matrix = projection_matrix(fovx=fovx, fovy=fovy, znear=znear, zfar=zfar).T
     full_proj_matrix = view_matrix @ proj_matrix
     
     # Calculate other parameters
     tan_fovx = np.tan(fovx * 0.5)
     tan_fovy = np.tan(fovy * 0.5)
+    
+    camera_center = np.linalg.inv(world_to_camera)[3, :3]
     
     # Handle camera type and distortion
     camera_model = camera_info.get("camera_model", "OPENCV")
@@ -64,6 +68,7 @@ def load_camera(camera_info):
     camera_params = {
         'R': R,
         'T': T,
+        'camera_center': camera_center,
         'view_matrix': view_matrix,
         'proj_matrix': proj_matrix,
         'full_proj_matrix': full_proj_matrix,
