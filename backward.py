@@ -1002,14 +1002,6 @@ def backward_render(
     non_zero_invdepths = torch.nonzero(dL_dinvdepths_torch.abs() > 1e-6)
     if len(non_zero_invdepths) > 0:
         print(dL_dinvdepths_torch[non_zero_invdepths[:, 0]])
-    
-    # exit()
-    # these should be output of 
-    # float3* __restrict__ dL_dmean2D,
-	# float4* __restrict__ dL_dconic2D,
-	# float* __restrict__ dL_dopacity,
-	# float* __restrict__ dL_dcolors,
-	# float* __restrict__ dL_dinvdepths
 
 def backward(
     # --- Core parameters ---

@@ -107,8 +107,12 @@ class NeRFGaussianSplattingTrainer:
             
         # Load NeRF dataset
         print(f"Loading NeRF dataset from {self.dataset_path}")
-        self.cameras, self.image_paths = self.load_nerf_data()
-        print(f"Loaded {len(self.cameras)} cameras and {len(self.image_paths)} images")
+        self.cameras, self.image_paths = self.load_nerf_data("train")
+        self.val_cameras, self.val_image_paths = self.load_nerf_data("val")
+        self.test_cameras, self.test_image_paths = self.load_nerf_data("test")
+        print(f"Loaded {len(self.cameras)} train cameras and {len(self.image_paths)} train images")
+        print(f"Loaded {len(self.val_cameras)} val cameras and {len(self.val_image_paths)} val images")
+        print(f"Loaded {len(self.test_cameras)} test cameras and {len(self.test_image_paths)} test images")
         
         # Initialize parameters
         self.num_points = self.config['num_points']
@@ -200,10 +204,10 @@ class NeRFGaussianSplattingTrainer:
         return scene_center, avg_back_dir
 
 
-    def load_nerf_data(self):
+    def load_nerf_data(self, datasplit):
         """Load camera parameters and images from a NeRF dataset."""
         # Read transforms_train.json
-        transforms_path = self.dataset_path / "transforms_train.json"
+        transforms_path = self.dataset_path / f"transforms_{datasplit}.json"
         if not transforms_path.exists():
             raise FileNotFoundError(f"No transforms_train.json found in {self.dataset_path}")
         
@@ -535,15 +539,15 @@ class NeRFGaussianSplattingTrainer:
                 # Zero gradients
                 self.zero_grad()
                 
-                print('self.cameras[camera_idx]', self.cameras[camera_idx])
-                exit()
-                print("self.params['positions'].numpy()", self.params['positions'].numpy().shape, self.params['positions'].numpy().flatten()[:100])
-                print("self.params['scales'].numpy()", self.params['scales'].numpy().shape, self.params['scales'].numpy().flatten()[:100])
-                print("self.params['rotations'].numpy()", self.params['rotations'].numpy().shape, self.params['rotations'].numpy().flatten()[:100])
-                print("self.params['opacities'].numpy()", self.params['opacities'].numpy().shape, self.params['opacities'].numpy().flatten()[:100])
-                print("self.params['shs'].numpy()", self.params['shs'].numpy().shape, self.params['shs'].numpy().flatten()[:100])
-                print("self.cameras[camera_idx]", self.cameras[camera_idx])
-                print("self.cameras[camera_idx]['full_proj_matrix']", self.cameras[camera_idx]['full_proj_matrix'])
+                # print('self.cameras[camera_idx]', self.cameras[camera_idx])
+                # exit()
+                # print("self.params['positions'].numpy()", self.params['positions'].numpy().shape, self.params['positions'].numpy().flatten()[:100])
+                # print("self.params['scales'].numpy()", self.params['scales'].numpy().shape, self.params['scales'].numpy().flatten()[:100])
+                # print("self.params['rotations'].numpy()", self.params['rotations'].numpy().shape, self.params['rotations'].numpy().flatten()[:100])
+                # print("self.params['opacities'].numpy()", self.params['opacities'].numpy().shape, self.params['opacities'].numpy().flatten()[:100])
+                # print("self.params['shs'].numpy()", self.params['shs'].numpy().shape, self.params['shs'].numpy().flatten()[:100])
+                # print("self.cameras[camera_idx]", self.cameras[camera_idx])
+                # print("self.cameras[camera_idx]['full_proj_matrix']", self.cameras[camera_idx]['full_proj_matrix'])
                 
                 # Render the view
                 rendered_image, depth_image, self.intermediate_buffers = render_gaussians(
