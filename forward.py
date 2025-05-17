@@ -631,14 +631,14 @@ def render_gaussians(
         print(f"Colors: {'from SH' if colors is None else 'provided'}, SH degree: {degree}")
         print(f"Antialiasing: {antialiasing}, Prefiltered: {prefiltered}")
 
-    print("view_matrix_warp", view_matrix_warp)
-    print("proj_matrix_warp", proj_matrix_warp)
-    print("campos_warp", campos_warp)
-    print("image_width", image_width)
-    print("image_height", image_height)
-    print("tan_fovx", tan_fovx)
-    print("tan_fovy", tan_fovy)
-    print("scale_modifier", scale_modifier)
+    # print("view_matrix_warp", view_matrix_warp)
+    # print("proj_matrix_warp", proj_matrix_warp)
+    # print("campos_warp", campos_warp)
+    # print("image_width", image_width)
+    # print("image_height", image_height)
+    # print("tan_fovx", tan_fovx)
+    # print("tan_fovy", tan_fovy)
+    # print("scale_modifier", scale_modifier)
     
     # Launch preprocessing kernel
     wp.launch(
@@ -676,7 +676,6 @@ def render_gaussians(
         ],
     )
     # print("radii", radii.shape, radii.flatten()[:100])
-    # exit()
     # print("points_xy_image", points_xy_image.shape, points_xy_image.flatten()[:100])
     # print("depths", depths.shape, depths.flatten()[:100])
     # print("rgb", rgb.shape, rgb.flatten()[:100])

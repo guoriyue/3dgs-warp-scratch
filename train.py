@@ -14,6 +14,7 @@ from backward import backward, densify_gaussians, prune_gaussians, adam_update
 from config import *
 from utils.math_utils import projection_matrix
 from utils.camera_utils import load_camera
+from utils.point_cloud_utils import compact_point_cloud, save_ply
 from loss import l1_loss, ssim, compute_image_gradients, depth_loss
 
             
@@ -239,7 +240,6 @@ class NeRFGaussianSplattingTrainer:
         
         # Process each frame
         for i, frame in enumerate(transforms['frames']):
-            print('frame', frame)
             camera_info = {
                 "camera_id": i,
                 "position": np.array([frame['transform_matrix'][0][3], frame['transform_matrix'][1][3], frame['transform_matrix'][2][3]], dtype=np.float32).tolist(),
@@ -538,12 +538,6 @@ class NeRFGaussianSplattingTrainer:
                 # Zero gradients
                 self.zero_grad()
                 
-                print('scale', self.params['scales'].numpy())
-                print('rotation', self.params['rotations'].numpy())
-                print('sh', self.params['shs'].numpy())
-                print('opacity', self.params['opacities'].numpy())
-                print('position', self.params['positions'].numpy())
-                print('===============================================')
                 print('self.cameras[camera_idx]', self.cameras[camera_idx])
                 print("self.params['positions'].numpy()", self.params['positions'].numpy().shape, self.params['positions'].numpy().flatten()[:100])
                 print("self.params['scales'].numpy()", self.params['scales'].numpy().shape, self.params['scales'].numpy().flatten()[:100])
