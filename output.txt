@@ -1,0 +1,235 @@
+/Users/guomingfei/Desktop/warp-nerf-scratch/train.py:226: DeprecationWarning: Starting with ImageIO v3 the behavior of this function will switch to that of iio.v3.imread. To keep the current behavior (and make this warning disappear) use `import imageio.v2 as imageio` or call `imageio.v2.imread` directly.
+  img = imageio.imread(first_img_path)
+Warp 1.7.0 initialized:
+   CUDA not enabled in this build
+   Devices:
+     "cpu"      : "arm"
+   Kernel cache:
+     /Users/guomingfei/Library/Caches/warp/1.7.0
+Loading NeRF dataset from /Users/guomingfei/Desktop/warp-nerf-scratch/data/nerf_synthetic/lego
+Using image dimensions from dataset: 800x800
+Loaded camera 0
+Loaded camera 1
+Loaded camera 2
+Loaded camera 3
+Loaded camera 4
+Loaded camera 5
+Loaded camera 6
+Loaded camera 7
+Loaded camera 8
+Loaded camera 9
+Loaded camera 10
+Loaded camera 11
+Loaded camera 12
+Loaded camera 13
+Loaded camera 14
+Loaded camera 15
+Loaded camera 16
+Loaded camera 17
+Loaded camera 18
+Loaded camera 19
+Loaded camera 20
+Loaded camera 21
+Loaded camera 22
+Loaded camera 23
+Loaded camera 24
+Loaded camera 25
+Loaded camera 26
+Loaded camera 27
+Loaded camera 28
+Loaded camera 29
+Loaded camera 30
+Loaded camera 31
+Loaded camera 32
+Loaded camera 33
+Loaded camera 34
+Loaded camera 35
+Loaded camera 36
+Loaded camera 37
+Loaded camera 38
+Loaded camera 39
+Loaded camera 40
+Loaded camera 41
+Loaded camera 42
+Loaded camera 43
+Loaded camera 44
+Loaded camera 45
+Loaded camera 46
+Loaded camera 47
+Loaded camera 48
+Loaded camera 49
+Loaded camera 50
+Loaded camera 51
+Loaded camera 52
+Loaded camera 53
+Loaded camera 54
+Loaded camera 55
+Loaded camera 56
+Loaded camera 57
+Loaded camera 58
+Loaded camera 59
+Loaded camera 60
+Loaded camera 61
+Loaded camera 62
+Loaded camera 63
+Loaded camera 64
+Loaded camera 65
+Loaded camera 66
+Loaded camera 67
+Loaded camera 68
+Loaded camera 69
+Loaded camera 70
+Loaded camera 71
+Loaded camera 72
+Loaded camera 73
+Loaded camera 74
+Loaded camera 75
+Loaded camera 76
+Loaded camera 77
+Loaded camera 78
+Loaded camera 79
+Loaded camera 80
+Loaded camera 81
+Loaded camera 82
+Loaded camera 83
+Loaded camera 84
+Loaded camera 85
+Loaded camera 86
+Loaded camera 87
+Loaded camera 88
+Loaded camera 89
+Loaded camera 90
+Loaded camera 91
+Loaded camera 92
+Loaded camera 93
+Loaded camera 94
+Loaded camera 95
+Loaded camera 96
+Loaded camera 97
+Loaded camera 98
+Loaded camera 99
+Using image dimensions from dataset: 800x800
+Loaded camera 0
+Loaded camera 1
+Loaded camera 2
+Loaded camera 3
+Loaded camera 4
+Loaded camera 5
+Loaded camera 6
+Loaded camera 7
+Loaded camera 8
+Loaded camera 9
+Loaded camera 10
+Loaded camera 11
+Loaded camera 12
+Loaded camera 13
+Loaded camera 14
+Loaded camera 15
+Loaded camera 16
+Loaded camera 17
+Loaded camera 18
+Loaded camera 19
+Loaded camera 20
+Loaded camera 21
+Loaded camera 22
+Loaded camera 23
+Loaded camera 24
+Loaded camera 25
+Loaded camera 26
+Loaded camera 27
+Loaded camera 28
+Loaded camera 29
+Loaded camera 30
+Loaded camera 31
+Loaded camera 32
+Loaded camera 33
+Loaded camera 34
+Loaded camera 35
+Loaded camera 36
+Loaded camera 37
+Loaded camera 38
+Loaded camera 39
+Loaded camera 40
+Loaded camera 41
+Loaded camera 42
+Loaded camera 43
+Loaded camera 44
+Loaded camera 45
+Loaded camera 46
+Loaded camera 47
+Loaded camera 48
+Loaded camera 49
+Loaded camera 50
+Loaded camera 51
+Loaded camera 52
+Loaded camera 53
+Loaded camera 54
+Loaded camera 55
+Loaded camera 56
+Loaded camera 57
+Loaded camera 58
+Loaded camera 59
+Loaded camera 60
+Loaded camera 61
+Loaded camera 62
+Loaded camera 63
+Loaded camera 64
+Loaded camera 65
+Loaded camera 66
+Loaded camera 67
+Loaded camera 68
+Loaded camera 69
+Loaded camera 70
+Loaded camera 71
+Loaded camera 72
+Loaded camera 73
+Loaded camera 74
+Loaded camera 75
+Loaded camera 76
+Loaded camera 77
+Loaded camera 78
+Loaded camera 79
+Loaded camera 80
+Loaded camera 81
+Loaded camera 82
+Loaded camera 83
+Loaded camera 84
+Loaded camera 85
+Loaded camera 86
+Loaded camera 87
+Loaded camera 88
+Loaded camera 89
+Loaded camera 90
+Loaded camera 91
+Loaded camera 92
+Loaded camera 93
+Loaded camera 94
+Loaded camera 95
+Loaded camera 96
+Loaded camera 97
+Loaded camera 98
+Loaded camera 99
+Traceback (most recent call last):
+  File "/Users/guomingfei/Desktop/warp-nerf-scratch/train.py", line 718, in <module>
+    main()
+  File "/Users/guomingfei/Desktop/warp-nerf-scratch/train.py", line 709, in main
+    trainer = NeRFGaussianSplattingTrainer(
+  File "/Users/guomingfei/Desktop/warp-nerf-scratch/train.py", line 112, in __init__
+    self.test_cameras, self.test_image_paths = self.load_nerf_data("test")
+  File "/Users/guomingfei/Desktop/warp-nerf-scratch/train.py", line 226, in load_nerf_data
+    img = imageio.imread(first_img_path)
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/imageio/__init__.py", line 97, in imread
+    return imread_v2(uri, format=format, **kwargs)
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/imageio/v2.py", line 360, in imread
+    result = file.read(index=0, **kwargs)
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/imageio/plugins/pillow.py", line 252, in read
+    image = self._apply_transforms(
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/imageio/plugins/pillow.py", line 333, in _apply_transforms
+    image = np.asarray(image)
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/PIL/Image.py", line 742, in __array_interface__
+    new["data"] = self.tobytes()
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/PIL/Image.py", line 802, in tobytes
+    self.load()
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/PIL/ImageFile.py", line 293, in load
+    n, err_code = decoder.decode(b)
+KeyboardInterrupt

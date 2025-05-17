@@ -133,7 +133,6 @@ def wp_preprocess(
     
     # For each Gaussian
     p_orig = orig_points[i]
-    
     p_view = in_frustum(p_orig, view_matrix)
     
     if p_view[2] <= 0.2:
@@ -143,7 +142,13 @@ def wp_preprocess(
     p_hom = proj_matrix * p_hom
     p_w = 1.0 / (p_hom[3] + 0.0000001)
     p_proj = wp.vec3(p_hom[0] * p_w, p_hom[1] * p_w, p_hom[2] * p_w)
-    print(p_proj)
+    # print(p_proj)
+    
+    # float3 p_orig = { orig_points[3 * idx], orig_points[3 * idx + 1], orig_points[3 * idx + 2] };
+	# float4 p_hom = transformPoint4x4(p_orig, projmatrix);
+	# float p_w = 1.0f / (p_hom.w + 0.0000001f);
+	# float3 p_proj = { p_hom.x * p_w, p_hom.y * p_w, p_hom.z * p_w };
+
 
     cov3d = compute_cov3d(scales[i], scale_modifier, rotations[i])
     cov3Ds[i] = cov3d
