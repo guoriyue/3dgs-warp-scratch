@@ -236,15 +236,17 @@ class NeRFGaussianSplattingTrainer:
         cameras = []
         image_paths = []
         
+        
         # Process each frame
         for i, frame in enumerate(transforms['frames']):
-            # Create a temporary camera.json file for this frame
+            print('frame', frame)
             camera_info = {
                 "camera_id": i,
-                "position": frame['transform_matrix'][:3, 3].tolist(),
-                "rotation": frame['transform_matrix'][:3, :3].tolist(),
+                "position": np.array([frame['transform_matrix'][0][3], frame['transform_matrix'][1][3], frame['transform_matrix'][2][3]], dtype=np.float32).tolist(),
+                "rotation": np.array([[frame['transform_matrix'][i][j] for j in range(3)] for i in range(3)], dtype=np.float32).tolist(),
                 "width": width,
                 "height": height,
+                "focal": focal,
                 "fx": focal,
                 "fy": focal
             }
