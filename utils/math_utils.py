@@ -83,4 +83,3 @@ def matrix_to_quaternion(matrix):
     
     # Return as (x, y, z, w) to match Warp's convention
     return np.array([x, y, z, w], dtype=np.float32)
-

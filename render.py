@@ -17,11 +17,11 @@ wp.init()
 def setup_example_scene(image_width=1800, image_height=1800, fovx=45.0, fovy=45.0, znear=0.01, zfar=100.0):
     """Setup example scene with camera and Gaussians for testing and debugging"""
     # Camera setup
-    camera_pos = np.array([0, 0, 5], dtype=np.float32)
+    T = np.array([0, 0, 5], dtype=np.float32)
     R = np.array([[1, 0, 0], [0, 1, 0], [0, 0, -1]], dtype=np.float32)
     
     # Compute matrices
-    view_matrix = world_to_view(R=R, t=camera_pos)
+    view_matrix = world_to_view(R=R, t=T)
     proj_matrix = projection_matrix(fovx=fovx, fovy=fovy, znear=znear, zfar=zfar)
     
     # Compute FOV parameters
@@ -32,7 +32,7 @@ def setup_example_scene(image_width=1800, image_height=1800, fovx=45.0, fovy=45.
     focal_y = image_height / (2 * tan_fovy)
     
     camera_params = {
-        'camera_pos': camera_pos,
+        'T': T,
         'R': R,
         'view_matrix': view_matrix,
         'proj_matrix': proj_matrix,
@@ -142,7 +142,7 @@ if __name__ == "__main__":
                     
                 # Print camera info for debugging
                 print(f"Camera parameters:")
-                print(f"  - Position: {camera_params['camera_pos']}")
+                print(f"  - Position: {camera_params['T']}")
                 print(f"  - View matrix: \n{camera_params['view_matrix']}")
                 print(f"  - Projection matrix: \n{camera_params['proj_matrix']}")
             
@@ -187,7 +187,7 @@ if __name__ == "__main__":
         print("image_width", args.width)
         print("shs", shs.shape)
         print("degree", sh_degree)
-        print("campos", camera_params['camera_pos'])
+        print("campos", camera_params['T'])
         print("prefiltered", prefiltered)
         print("antialiasing", antialiasing)
         print("clamped", clamped)
@@ -209,7 +209,7 @@ if __name__ == "__main__":
         image_width=args.width,
         sh=shs,
         degree=sh_degree,
-        campos=camera_params['camera_pos'],
+        campos=camera_params['T'],
         prefiltered=prefiltered,
         antialiasing=antialiasing,
         clamped=clamped,

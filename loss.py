@@ -1,7 +1,7 @@
 import warp as wp
 import numpy as np
 from config import DEVICE
-from utils import *
+from utils.point_cloud_utils import *
 
 # Constants for SSIM calculation
 C1 = 0.01 ** 2

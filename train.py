@@ -183,7 +183,7 @@ class NeRFGaussianSplattingTrainer:
         back_dirs     = []
 
         for cam in self.cameras:
-            P = np.asarray(cam["camera_pos"], dtype=np.float32)
+            P = np.asarray(cam["T"], dtype=np.float32)
 
             # camera forward is -R[:,2]  (NeRF convention)
             fwd = -cam["R"][:, 2]
@@ -242,13 +242,10 @@ class NeRFGaussianSplattingTrainer:
         for i, frame in enumerate(transforms['frames']):
             camera_info = {
                 "camera_id": i,
-                "position": np.array([frame['transform_matrix'][0][3], frame['transform_matrix'][1][3], frame['transform_matrix'][2][3]], dtype=np.float32).tolist(),
-                "rotation": np.array([[frame['transform_matrix'][i][j] for j in range(3)] for i in range(3)], dtype=np.float32).tolist(),
+                "camera_to_world": frame['transform_matrix'],
                 "width": width,
                 "height": height,
                 "focal": focal,
-                "fx": focal,
-                "fy": focal
             }
             
             # Load camera parameters using existing function
@@ -432,7 +429,7 @@ class NeRFGaussianSplattingTrainer:
             image_width=self.cameras[camera_idx]['width'],
             sh=self.params['shs'].numpy(),  # Pass SH coefficients
             degree=self.config['sh_degree'],
-            campos=self.cameras[camera_idx]['camera_pos'],
+            campos=self.cameras[camera_idx]['T'],
             prefiltered=False,
             antialiasing=True,
             clamped=True
@@ -539,6 +536,7 @@ class NeRFGaussianSplattingTrainer:
                 self.zero_grad()
                 
                 print('self.cameras[camera_idx]', self.cameras[camera_idx])
+                exit()
                 print("self.params['positions'].numpy()", self.params['positions'].numpy().shape, self.params['positions'].numpy().flatten()[:100])
                 print("self.params['scales'].numpy()", self.params['scales'].numpy().shape, self.params['scales'].numpy().flatten()[:100])
                 print("self.params['rotations'].numpy()", self.params['rotations'].numpy().shape, self.params['rotations'].numpy().flatten()[:100])
@@ -564,7 +562,7 @@ class NeRFGaussianSplattingTrainer:
                     image_width=self.cameras[camera_idx]['width'],
                     sh=self.params['shs'].numpy(),  # Pass SH coefficients
                     degree=self.config['sh_degree'],
-                    campos=self.cameras[camera_idx]['camera_pos'],
+                    campos=self.cameras[camera_idx]['T'],
                     prefiltered=False,
                     antialiasing=False,
                     clamped=True
@@ -596,7 +594,7 @@ class NeRFGaussianSplattingTrainer:
                 camera = self.cameras[camera_idx]
                 view_matrix = wp.mat44(camera['view_matrix'].flatten())
                 proj_matrix = wp.mat44(camera['proj_matrix'].flatten())
-                campos = wp.vec3(camera['camera_pos'][0], camera['camera_pos'][1], camera['camera_pos'][2])
+                campos = wp.vec3(camera['T'][0], camera['T'][1], camera['T'][2])
 
                 # Create appropriate buffer dictionaries for the backward pass
                 geom_buffer = {
@@ -679,8 +677,7 @@ class NeRFGaussianSplattingTrainer:
                 updated_scale_grads = self.params['scales'].numpy().copy()
                 updated_rotation_grads = self.params['rotations'].numpy().copy()
                 updated_opacity_grads = self.params['opacities'].numpy().copy()
-                updated_sh_grads = self.params['shs'].numpy().copy()=========================================")
-                
+                updated_sh_grads = self.params['shs'].numpy().copy()
                 
                 print('α max / mean',  np.max(self.params['opacities']), np.mean(self.params['opacities']))
                 print('σ max',          np.max(self.params['scales']))
