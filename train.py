@@ -439,7 +439,7 @@ class NeRFGaussianSplattingTrainer:
             clamped=True
         )
         plt.figure(figsize=(10, 10))
-        plt.imshow(rendered_image)
+        plt.imshow(wp.to_torch(rendered_image).cpu().numpy())
         plt.title(f'Rendered View at Iteration {iteration}')
         plt.axis('off')
         plt.savefig(checkpoint_dir / "rendered_view.png")
@@ -485,7 +485,7 @@ class NeRFGaussianSplattingTrainer:
             img8 = (np.clip(arr_f32, 0, 1) * 255).astype(np.uint8)
             imageio.imwrite(self.output_path / f"{stem}_{it:06d}.png", img8)
 
-        save_rgb(rendered_image, "render")
+        save_rgb(wp.to_torch(rendered_image).cpu().numpy(), "render")
         save_rgb(target_image,   "target")
 
         # ------ make 2-D projection scatter ------------------------------

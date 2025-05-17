@@ -34,10 +34,6 @@ class GaussianParams:
     lr_rot = 5e-3
     lr_sh = 2e-3
     lr_opac = 5e-3
-    # lr_scale = 0
-    # lr_rot = 0
-    # lr_sh = 0
-    # lr_opac = 0
     num_points = 1000  # Initial number of Gaussian points
 
     # Optimization parameters
