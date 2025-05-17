@@ -144,8 +144,6 @@ def wp_preprocess(
     p_w = 1.0 / (p_hom[3] + 0.0000001)
     p_proj = wp.vec3(p_hom[0] * p_w, p_hom[1] * p_w, p_hom[2] * p_w)
     
-    
-    
     cov3d = compute_cov3d(scales[i], scale_modifier, rotations[i])
     cov3Ds[i] = cov3d
     # Compute 2D covariance matrix
@@ -666,9 +664,12 @@ def render_gaussians(
             antialiasing               # antialiasing
         ],
     )
-    torch_depths = wp.to_torch(depths).cpu().numpy()
-    torch_rgb = wp.to_torch(rgb).cpu().numpy()
-    torch_conic_opacity = wp.to_torch(conic_opacity).cpu().numpy()
+    
+    torch_points_xy_image = wp.to_torch(points_xy_image).cpu().numpy()
+    print("torch_points_xy_image", torch_points_xy_image.shape, torch_points_xy_image.flatten()[:100])
+    # print how many has values
+    print("number of points with values", np.sum(torch_points_xy_image[:, 0] != 0.0))
+    # exit()
     point_offsets = wp.zeros(num_points, dtype=int, device=DEVICE)
     wp.launch(
         kernel=wp_prefix_sum,
@@ -788,7 +789,9 @@ def render_gaussians(
                 image_height
             ]
         )
-    
+
+    print("radii", radii.shape, radii.flatten()[:100])
+    exit()
     # Return rendered image, depth image, and intermediate buffers needed for backward pass
     return rendered_image, depth_image, {
         "radii": radii,
