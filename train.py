@@ -530,8 +530,8 @@ class NeRFGaussianSplattingTrainer:
         with tqdm(total=num_iterations) as pbar:
             for iteration in range(num_iterations):
                 # Select a random camera and corresponding image
-                # camera_idx = np.random.randint(0, len(self.cameras))
-                camera_idx = 0
+                camera_idx = np.random.randint(0, len(self.cameras))
+                # camera_idx = 0
                 # camera_idx = 3
                 image_path = self.image_paths[camera_idx]
                 target_image = self.load_image(image_path)
@@ -572,7 +572,7 @@ class NeRFGaussianSplattingTrainer:
                     clamped=True
                 )
                 # print("radii", self.intermediate_buffers['radii'].shape, self.intermediate_buffers['radii'].flatten()[:100])
-                self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
+                # self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
 
                 if iteration % 50 == 0:
                     self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
