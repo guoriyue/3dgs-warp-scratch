@@ -679,15 +679,7 @@ class NeRFGaussianSplattingTrainer:
                 updated_scale_grads = self.params['scales'].numpy().copy()
                 updated_rotation_grads = self.params['rotations'].numpy().copy()
                 updated_opacity_grads = self.params['opacities'].numpy().copy()
-                updated_sh_grads = self.params['shs'].numpy().copy()
-                # # print diff
-                # print("================================================")
-                # print(np.abs(original_position_grads - updated_position_grads).max())
-                # print(np.abs(original_scale_grads - updated_scale_grads).max())
-                # print(np.abs(original_rotation_grads - updated_rotation_grads).max())
-                # print(np.abs(original_opacity_grads - updated_opacity_grads).max())
-                # print(np.abs(original_sh_grads - updated_sh_grads).max())
-                # print("================================================")
+                updated_sh_grads = self.params['shs'].numpy().copy()=========================================")
                 
                 
                 print('α max / mean',  np.max(self.params['opacities']), np.mean(self.params['opacities']))

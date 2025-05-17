@@ -968,11 +968,6 @@ def backward_render(
             dL_dinvdepths  # Added depth gradient output
         ],
     )
-    # print("dL_dmean2D", dL_dmean2D)
-    # print("dL_dconic2D", dL_dconic2D)
-    # print("dL_dopacity", dL_dopacity)
-    # print("dL_dcolors", dL_dcolors)
-    # print("dL_dinvdepths", dL_dinvdepths)
     print("wp_render_backward_kernel done")
     
     # Convert to torch and print non-zero values
