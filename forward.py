@@ -18,7 +18,7 @@ def get_rect(p: wp.vec2, max_radius: float, tile_grid: wp.vec3):
     # Extract grid dimensions
     grid_size_x = tile_grid[0]
     grid_size_y = tile_grid[1]
-
+    
     rect_min_x = wp.min(wp.int32(grid_size_x), wp.int32(wp.max(wp.int32(0), wp.int32((p[0] - max_radius) / float(TILE_M)))))
     rect_min_y = wp.min(wp.int32(grid_size_y), wp.int32(wp.max(wp.int32(0), wp.int32((p[1] - max_radius) / float(TILE_N)))))
     
@@ -137,7 +137,7 @@ def wp_preprocess(
     
     p_view = in_frustum(p_orig, view_matrix)
 
-    if wp.abs(p_view[2]) <= 0.2:  # Points too close to camera plane (handles both +z and -z camera directions)
+    if p_view[2] <= 0.2:
         return
     
     p_hom = wp.vec4(p_view[0], p_view[1], p_view[2], 1.0)
@@ -166,7 +166,6 @@ def wp_preprocess(
     
     # Invert covariance (EWA algorithm)
     det = det_cov_plus_h_cov
-    
     if det == 0.0:
         return
         
@@ -186,7 +185,6 @@ def wp_preprocess(
 
     # Get rectangle of affected tiles
     rect_min_x, rect_min_y, rect_max_x, rect_max_y = get_rect(point_image, my_radius, tile_grid)
-    
     # Skip if rectangle has 0 area
     if (rect_max_x - rect_min_x) * (rect_max_y - rect_min_y) == 0:
         return
@@ -649,6 +647,15 @@ def render_gaussians(
         print(f"Colors: {'from SH' if colors is None else 'provided'}, SH degree: {degree}")
         print(f"Antialiasing: {antialiasing}, Prefiltered: {prefiltered}")
 
+    print("view_matrix_warp", view_matrix_warp)
+    print("proj_matrix_warp", proj_matrix_warp)
+    print("campos_warp", campos_warp)
+    print("image_width", image_width)
+    print("image_height", image_height)
+    print("tan_fovx", tan_fovx)
+    print("tan_fovy", tan_fovy)
+    print("scale_modifier", scale_modifier)
+    
     # Launch preprocessing kernel
     wp.launch(
         kernel=wp_preprocess,
@@ -684,6 +691,15 @@ def render_gaussians(
             antialiasing               # antialiasing
         ],
     )
+    # print("radii", radii.shape, radii.flatten()[:100])
+    # exit()
+    # print("points_xy_image", points_xy_image.shape, points_xy_image.flatten()[:100])
+    # print("depths", depths.shape, depths.flatten()[:100])
+    # print("rgb", rgb.shape, rgb.flatten()[:100])
+    # print("conic_opacity", conic_opacity.shape, conic_opacity.flatten()[:100])
+    # print("tiles_touched", tiles_touched.shape, tiles_touched.flatten()[:100])
+    # print("clamped_state", clamped_state.shape, clamped_state.flatten()[:100])
+    
     torch_depths = wp.to_torch(depths).cpu().numpy()
     torch_rgb = wp.to_torch(rgb).cpu().numpy()
     torch_conic_opacity = wp.to_torch(conic_opacity).cpu().numpy()

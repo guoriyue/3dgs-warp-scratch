@@ -6,23 +6,17 @@ import argparse
 import os
 import json
 from forward import render_gaussians
-from utils import world_to_view, projection_matrix, load_ply, matrix_to_quaternion, load_camera_from_json, load_gaussians_from_path
+from utils.math_utils import world_to_view, projection_matrix, matrix_to_quaternion
+from utils.point_cloud_utils import load_ply, load_gaussians_from_path
+from utils.camera_utils import load_camera_from_json
 from config import DEVICE
 
 # Initialize Warp
 wp.init()
 
-def setup_example_camera(image_width=None, image_height=None, fovx=None, fovy=None, znear=None, zfar=None):
-    """Setup default camera parameters"""
-    # Use hardcoded default values
-    image_width = image_width or 1800
-    image_height = image_height or 1800
-    fovx = fovx or 45.0  # degrees
-    fovy = fovy or 45.0  # degrees
-    znear = znear or 0.01
-    zfar = zfar or 100.0
-    
-    # Hardcoded camera position and orientation
+def setup_example_scene(image_width=1800, image_height=1800, fovx=45.0, fovy=45.0, znear=0.01, zfar=100.0):
+    """Setup example scene with camera and Gaussians for testing and debugging"""
+    # Camera setup
     camera_pos = np.array([0, 0, 5], dtype=np.float32)
     R = np.array([[1, 0, 0], [0, 1, 0], [0, 0, -1]], dtype=np.float32)
     
@@ -50,18 +44,7 @@ def setup_example_camera(image_width=None, image_height=None, fovx=None, fovy=No
         'height': image_height
     }
     
-    return camera_params
-
-def example_gaussians(image_width=None, image_height=None, fovx=None, fovy=None, znear=None, zfar=None):
-    """Create example Gaussians for testing and debugging"""
-    # Use hardcoded default values
-    image_width = image_width or 1800
-    image_height = image_height or 1800
-    fovx = fovx or 45.0  # degrees
-    fovy = fovy or 45.0  # degrees
-    znear = znear or 0.01
-    zfar = zfar or 100.0
-    
+    # Gaussian setup
     pts = np.array([[2, 0, -2], [0, 2, -2], [-2, 0, -2]], dtype=np.float32)
     n = len(pts)
     
@@ -92,19 +75,7 @@ def example_gaussians(image_width=None, image_height=None, fovx=None, fovy=None,
     
     colors = np.ones((n, 3), dtype=np.float32)
     
-    # Reuse the camera setup function
-    camera_params = setup_example_camera(
-        image_width=image_width,
-        image_height=image_height,
-        fovx=fovx,
-        fovy=fovy,
-        znear=znear,
-        zfar=zfar
-    )
     return pts, shs, scales, colors, rotations, opacities, camera_params
-
-
-
 
 if __name__ == "__main__":
     # Parse command-line arguments
@@ -118,20 +89,17 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true", help="Enable additional debug output")
     args = parser.parse_args()
     
-    # Set image parameters with hardcoded defaults
-    image_width = args.width
-    image_height = args.height
-    fovx = 45.0  # degrees
-    fovy = 45.0  # degrees
-    znear = 0.01
-    zfar = 100.0
+    # Default rendering parameters
     background = np.array([0.0, 0.0, 0.0], dtype=np.float32)  # Black background
     scale_modifier = 1.0
+    sh_degree = 3
+    prefiltered = False
+    antialiasing = False
+    clamped = True
     
     if args.input_path:
         # Load Gaussians from provided path
         try:
-            # pts, scales, rotations, opacities, colors, shs = load_gaussians_from_path(f"{args.input_path}/input.ply")
             ply_path = "/Users/guomingfei/Desktop/warp-nerf-scratch/playroom/point_cloud/iteration_30000/point_cloud.ply"
             print(f"Loading point cloud from: {ply_path}")
             pts, scales, rotations, opacities, colors, shs = load_gaussians_from_path(ply_path)
@@ -161,20 +129,16 @@ if __name__ == "__main__":
             # If no camera found, use default camera
             if camera_params is None:
                 print("Using default camera parameters")
-                camera_params = setup_example_camera(
-                    image_width=image_width, 
-                    image_height=image_height,
-                    fovx=fovx,
-                    fovy=fovy,
-                    znear=znear,
-                    zfar=zfar
-                )
+                camera_params = setup_example_scene(
+                    image_width=args.width, 
+                    image_height=args.height
+                )[-1]  # Get only the camera_params from the tuple
             else:
                 # Update image dimensions from camera if available
                 if 'width' in camera_params and 'height' in camera_params:
-                    image_width = camera_params['width']
-                    image_height = camera_params['height']
-                    print(f"Using image dimensions from camera: {image_width}x{image_height}")
+                    args.width = camera_params['width']
+                    args.height = camera_params['height']
+                    print(f"Using image dimensions from camera: {args.width}x{args.height}")
                     
                 # Print camera info for debugging
                 print(f"Camera parameters:")
@@ -188,14 +152,10 @@ if __name__ == "__main__":
             traceback.print_exc()
             exit(1)
     else:
-        # Use example Gaussians
-        pts, shs, scales, colors, rotations, opacities, camera_params = example_gaussians(
-            image_width=image_width,
-            image_height=image_height,
-            fovx=fovx,
-            fovy=fovy,
-            znear=znear,
-            zfar=zfar
+        # Use example scene
+        pts, shs, scales, colors, rotations, opacities, camera_params = setup_example_scene(
+            image_width=args.width,
+            image_height=args.height
         )
         n = len(pts)
         print(f"Using {n} example Gaussians")
@@ -203,42 +163,34 @@ if __name__ == "__main__":
     # Debugging: Force a fixed camera for consistency
     if args.debug and args.input_path:
         print("Using a fixed example camera for debugging")
-        camera_params = setup_example_camera(
-            image_width=image_width, 
-            image_height=image_height,
-            fovx=fovx,
-            fovy=fovy,
-            znear=znear,
-            zfar=zfar
-        )
+        camera_params = setup_example_scene(
+            image_width=args.width, 
+            image_height=args.height
+        )[-1]  # Get only the camera_params from the tuple
 
-    print(f"Starting rendering with {n} points to {image_width}x{image_height} image")
+    print(f"Starting rendering with {n} points to {args.width}x{args.height} image")
     
-    # Hardcoded rendering parameters
-    sh_degree = 3
-    prefiltered = False
-    antialiasing = False
-    clamped = True
-    debug = args.debug
-    print("background", background)
-    print("pts", pts.shape)
-    print("colors", colors.shape)
-    print("opacities", opacities.shape)
-    print("scales", scales.shape)
-    print("rotations", rotations.shape)
-    print("scale_modifier", scale_modifier)
-    print("viewmatrix", camera_params['view_matrix'])
-    print("projmatrix", camera_params['proj_matrix'])
-    print("tan_fovx", camera_params['tan_fovx'])
-    print("tan_fovy", camera_params['tan_fovy'])
-    print("image_height", image_height)
-    print("image_width", image_width)
-    print("shs", shs.shape)
-    print("degree", sh_degree)
-    print("campos", camera_params['camera_pos'])
-    print("prefiltered", prefiltered)
-    print("antialiasing", antialiasing)
-    print("clamped", clamped)
+    if args.debug:
+        print("Rendering parameters:")
+        print("background", background)
+        print("pts", pts.shape)
+        print("colors", colors.shape)
+        print("opacities", opacities.shape)
+        print("scales", scales.shape)
+        print("rotations", rotations.shape)
+        print("scale_modifier", scale_modifier)
+        print("viewmatrix", camera_params['view_matrix'])
+        print("projmatrix", camera_params['proj_matrix'])
+        print("tan_fovx", camera_params['tan_fovx'])
+        print("tan_fovy", camera_params['tan_fovy'])
+        print("image_height", args.height)
+        print("image_width", args.width)
+        print("shs", shs.shape)
+        print("degree", sh_degree)
+        print("campos", camera_params['camera_pos'])
+        print("prefiltered", prefiltered)
+        print("antialiasing", antialiasing)
+        print("clamped", clamped)
     
     # Call the Gaussian rasterizer
     rendered_image, depth_image, _ = render_gaussians(
@@ -253,15 +205,15 @@ if __name__ == "__main__":
         projmatrix=camera_params['proj_matrix'],
         tan_fovx=camera_params['tan_fovx'],
         tan_fovy=camera_params['tan_fovy'],
-        image_height=image_height,
-        image_width=image_width,
+        image_height=args.height,
+        image_width=args.width,
         sh=shs,
         degree=sh_degree,
         campos=camera_params['camera_pos'],
         prefiltered=prefiltered,
         antialiasing=antialiasing,
         clamped=clamped,
-        debug=debug
+        debug=args.debug
     )
 
     print("Rendering completed")
@@ -272,7 +224,7 @@ if __name__ == "__main__":
     # Check if the image has any non-background pixels
     bg_color = background
     non_bg_pixels = np.sum(np.any(np.abs(rendered_array - bg_color) > 0.01, axis=2))
-    total_pixels = image_width * image_height
+    total_pixels = args.width * args.height
     print(f"Image statistics: {non_bg_pixels} / {total_pixels} non-background pixels ({non_bg_pixels/total_pixels*100:.2f}%)")
     
     # Display and save using matplotlib

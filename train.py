@@ -12,7 +12,10 @@ import argparse
 from forward import render_gaussians
 from backward import backward, densify_gaussians, prune_gaussians, adam_update
 from config import *
-from utils import *
+from utils.math_utils import projection_matrix
+# from utils.camera_utils import *
+# from utils.point_cloud_utils import *
+# from utils.math_utils import *
 from loss import l1_loss, ssim, compute_image_gradients, depth_loss
 
             
@@ -88,50 +91,6 @@ def zero_gradients(
         idx = i * 16 + j
         sh_grad[idx] = wp.vec3(0.0, 0.0, 0.0)
 
-# Function to create a new point cloud with a reduced set of points
-def compact_point_cloud(params, valid_mask):
-    # NOTE: This function performs compaction on the CPU via numpy, which can be inefficient.
-    # Copying data between GPU (Warp) and CPU (NumPy) introduces overhead.
-    # A more performant approach would implement compaction directly on the GPU,
-    # possibly using parallel prefix sums (scan) to determine new indices.
-    mask_np = valid_mask.numpy()
-    indices = np.where(mask_np)[0]
-    num_valid = len(indices)
-    
-    # Create new arrays
-    new_positions = wp.zeros(num_valid, dtype=wp.vec3)
-    new_scales = wp.zeros(num_valid, dtype=wp.vec3)
-    new_rotations = wp.zeros(num_valid, dtype=wp.vec4)
-    new_opacities = wp.zeros(num_valid, dtype=float)
-    new_shs = wp.zeros(num_valid * 16, dtype=wp.vec3)
-    
-    # Copy valid points
-    positions_np = params['positions'].numpy()
-    scales_np = params['scales'].numpy()
-    rotations_np = params['rotations'].numpy()
-    opacities_np = params['opacities'].numpy()
-    shs_np = params['shs'].numpy()
-    
-    for i, idx in enumerate(indices):
-        new_positions.numpy()[i] = positions_np[idx]
-        new_scales.numpy()[i] = scales_np[idx]
-        new_rotations.numpy()[i] = rotations_np[idx]
-        new_opacities.numpy()[i] = opacities_np[idx]
-        
-        # Copy SH coefficients
-        for j in range(16):
-            new_shs.numpy()[i * 16 + j] = shs_np[idx * 16 + j]
-    
-    # Create new parameters
-    new_params = {
-        'positions': new_positions,
-        'scales': new_scales,
-        'rotations': new_rotations,
-        'opacities': new_opacities,
-        'shs': new_shs
-    }
-    
-    return new_params, num_valid
 
 
 class NeRFGaussianSplattingTrainer:
@@ -620,7 +579,7 @@ class NeRFGaussianSplattingTrainer:
             for iteration in range(num_iterations):
                 # Select a random camera and corresponding image
                 # camera_idx = np.random.randint(0, len(self.cameras))
-                camera_idx = 42
+                camera_idx = 0
                 # camera_idx = 3
                 image_path = self.image_paths[camera_idx]
                 target_image = self.load_image(image_path)
@@ -665,7 +624,6 @@ class NeRFGaussianSplattingTrainer:
                     antialiasing=False,
                     clamped=True
                 )
-                print('rendered_image', rendered_image.shape, rendered_image.flatten()[:100])
                 print("radii", self.intermediate_buffers['radii'].shape, self.intermediate_buffers['radii'].flatten()[:100])
                 self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
                 exit()

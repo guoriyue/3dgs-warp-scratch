@@ -4,7 +4,7 @@ import numpy as np
 import warp as wp
 import math
 from config import * # Assuming TILE_M, TILE_N, VEC6, DEVICE are defined here
-from utils import *
+
 # Initialize Warp if not already done elsewhere
 # wp.init()
 
@@ -13,6 +13,7 @@ from utils import *
 # --- Spherical Harmonics Constants ---
 SH_C0 = 0.28209479177387814
 SH_C1 = 0.4886025119029199
+
 
 
 @wp.func
