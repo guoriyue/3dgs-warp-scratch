@@ -539,16 +539,6 @@ class NeRFGaussianSplattingTrainer:
                 # Zero gradients
                 self.zero_grad()
                 
-                # print('self.cameras[camera_idx]', self.cameras[camera_idx])
-                # exit()
-                # print("self.params['positions'].numpy()", self.params['positions'].numpy().shape, self.params['positions'].numpy().flatten()[:100])
-                # print("self.params['scales'].numpy()", self.params['scales'].numpy().shape, self.params['scales'].numpy().flatten()[:100])
-                # print("self.params['rotations'].numpy()", self.params['rotations'].numpy().shape, self.params['rotations'].numpy().flatten()[:100])
-                # print("self.params['opacities'].numpy()", self.params['opacities'].numpy().shape, self.params['opacities'].numpy().flatten()[:100])
-                # print("self.params['shs'].numpy()", self.params['shs'].numpy().shape, self.params['shs'].numpy().flatten()[:100])
-                # print("self.cameras[camera_idx]", self.cameras[camera_idx])
-                # print("self.cameras[camera_idx]['full_proj_matrix']", self.cameras[camera_idx]['full_proj_matrix'])
-                
                 # Render the view
                 rendered_image, depth_image, self.intermediate_buffers = render_gaussians(
                     background=np.array(self.config['background_color'], dtype=np.float32),
@@ -571,8 +561,6 @@ class NeRFGaussianSplattingTrainer:
                     antialiasing=False,
                     clamped=True
                 )
-                # print("radii", self.intermediate_buffers['radii'].shape, self.intermediate_buffers['radii'].flatten()[:100])
-                # self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
 
                 if iteration % 50 == 0:
                     self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
