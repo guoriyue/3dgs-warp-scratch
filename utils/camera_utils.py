@@ -88,7 +88,6 @@ def load_camera(camera_info):
         'distortion_params': np.array(distortion_params, dtype=np.float32)
     }
     
-    print(f"Loaded camera {camera_id}")
     return camera_params
 
 def load_camera_from_json(input_path, camera_id=0):

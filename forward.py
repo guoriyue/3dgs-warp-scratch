@@ -125,7 +125,7 @@ def wp_preprocess(
     
     # For each Gaussian
     p_orig = orig_points[i]
-    p_view = view_matrix * wp.vec4(p_orig[0], p_orig[1], p_orig[2], 1.0)
+    p_view = wp.vec4(p_orig[0], p_orig[1], p_orig[2], 1.0) * view_matrix
 
     if p_view[2] <= 0.2:
         return
@@ -172,10 +172,10 @@ def wp_preprocess(
 
     # Get rectangle of affected tiles
     rect_min_x, rect_min_y, rect_max_x, rect_max_y = get_rect(point_image, my_radius, tile_grid)
+    
     # Skip if rectangle has 0 area
     if (rect_max_x - rect_min_x) * (rect_max_y - rect_min_y) == 0:
         return
-    
     # Compute color from spherical harmonics
     pos = p_orig
     dir_orig = pos - cam_pos
@@ -655,13 +655,6 @@ def render_gaussians(
         ],
     )
     
-    torch_points_xy_image = wp.to_torch(points_xy_image).cpu().numpy()
-    print("torch_points_xy_image", torch_points_xy_image.shape, torch_points_xy_image.flatten()[:100])
-    # print how many has values
-    print("number of points with values", np.sum(torch_points_xy_image[:, 0] != 0.0)) 
-    # print how many has values for radii
-    print("number of points with values for radii", np.sum(radii != 0))
-    exit()
     point_offsets = wp.zeros(num_points, dtype=int, device=DEVICE)
     wp.launch(
         kernel=wp_prefix_sum,
