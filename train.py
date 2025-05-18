@@ -150,6 +150,10 @@ class NeRFGaussianSplattingTrainer:
         xyz = np.random.random((self.num_points, 3)) * 2.6 - 1.3
         positions = wp.array(xyz, dtype=wp.vec3)
         
+        scales = np.load("/Users/guomingfei/Desktop/warp-nerf-scratch/scales.npz")["scales"]
+        scales = wp.array(scales, dtype=wp.vec3)
+        
+        
         # Return parameters as dictionary
         return {
             'positions': positions,
@@ -564,11 +568,11 @@ class NeRFGaussianSplattingTrainer:
                     clamped=True
                 )
 
-                radii = wp.to_torch(self.intermediate_buffers["radii"]).cpu().numpy()
-                print("radii", radii.shape, radii.flatten()[:100])
-                self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
+                # radii = wp.to_torch(self.intermediate_buffers["radii"]).cpu().numpy()
+                # print("radii", radii.shape, radii.flatten()[:100])
+                # self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
 
-                exit()
+                # exit()
                 if iteration % 50 == 0:
                     self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
 

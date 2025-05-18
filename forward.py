@@ -31,7 +31,8 @@ def get_rect(p: wp.vec2, max_radius: float, tile_grid: wp.vec3):
 @wp.func
 def compute_cov2d(p_orig: wp.vec3, cov3d: VEC6, view_matrix: wp.mat44, 
                  tan_fovx: float, tan_fovy: float, width: float, height: float) -> wp.vec3:
-    t = wp.transform_point(view_matrix, p_orig)
+    
+    t = wp.vec4(p_orig[0], p_orig[1], p_orig[2], 1.0) * view_matrix
     limx = 1.3 * tan_fovx
     limy = 1.3 * tan_fovy
     # Clamp X/Y to stay inside frustum
@@ -39,6 +40,7 @@ def compute_cov2d(p_orig: wp.vec3, cov3d: VEC6, view_matrix: wp.mat44,
     tytz = t[1] / t[2]
     t[0] = min(limx, max(-limx, txtz)) * t[2]
     t[1] = min(limy, max(-limy, tytz)) * t[2]
+    
     focal_x = width / (2.0 * tan_fovx)
     focal_y = height / (2.0 * tan_fovy)
     # compute Jacobian
@@ -54,7 +56,7 @@ def compute_cov2d(p_orig: wp.vec3, cov3d: VEC6, view_matrix: wp.mat44,
         view_matrix[2, 0], view_matrix[2, 1], view_matrix[2, 2]
     )
     
-    T = W * J
+    T = J * W
     
     Vrk = wp.mat33(
         cov3d[0], cov3d[1], cov3d[2],
@@ -62,7 +64,7 @@ def compute_cov2d(p_orig: wp.vec3, cov3d: VEC6, view_matrix: wp.mat44,
         cov3d[2], cov3d[4], cov3d[5]
     )
     
-    cov = T * Vrk * wp.transpose(T)
+    cov = T * wp.transpose(Vrk) * wp.transpose(T)
     
     return wp.vec3(cov[0, 0], cov[0, 1], cov[1, 1])
 
@@ -136,8 +138,8 @@ def wp_preprocess(
     p_proj = wp.vec3(p_hom[0] * p_w, p_hom[1] * p_w, p_hom[2] * p_w)
 
     cov3d = compute_cov3d(scales[i], scale_modifier, rotations[i])
+
     cov3Ds[i] = cov3d
-    print(cov3d)
     # Compute 2D covariance matrix
     cov2d = compute_cov2d(p_orig, cov3d, view_matrix, tan_fovx, tan_fovy, float(W), float(H))
 
