@@ -658,7 +658,10 @@ def render_gaussians(
     torch_points_xy_image = wp.to_torch(points_xy_image).cpu().numpy()
     print("torch_points_xy_image", torch_points_xy_image.shape, torch_points_xy_image.flatten()[:100])
     # print how many has values
-    print("number of points with values", np.sum(torch_points_xy_image[:, 0] != 0.0))
+    print("number of points with values", np.sum(torch_points_xy_image[:, 0] != 0.0)) 
+    # print how many has values for radii
+    print("number of points with values for radii", np.sum(radii != 0))
+    exit()
     point_offsets = wp.zeros(num_points, dtype=int, device=DEVICE)
     wp.launch(
         kernel=wp_prefix_sum,
