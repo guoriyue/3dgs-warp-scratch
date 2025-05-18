@@ -564,9 +564,11 @@ class NeRFGaussianSplattingTrainer:
                     clamped=True
                 )
 
-                self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
+                radii = wp.to_torch(self.intermediate_buffers["radii"]).cpu().numpy()
+                # print("radii", radii.shape, radii.flatten()[:100])
+                # self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
 
-                exit()
+                # exit()
                 if iteration % 50 == 0:
                     self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
 

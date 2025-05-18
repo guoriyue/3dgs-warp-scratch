@@ -139,7 +139,7 @@ def wp_preprocess(
     cov3Ds[i] = cov3d
     # Compute 2D covariance matrix
     cov2d = compute_cov2d(p_orig, cov3d, view_matrix, tan_fovx, tan_fovy, float(W), float(H))
-    
+
     # Constants
     h_var = 0.3
     W_float = float(W)
