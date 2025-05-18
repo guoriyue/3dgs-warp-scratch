@@ -82,14 +82,6 @@ def compute_cov3d(scale: wp.vec3, scale_mod: float, rot: wp.vec4) -> VEC6:
     
     return VEC6(sigma[0, 0], sigma[0, 1], sigma[0, 2], sigma[1, 1], sigma[1, 2], sigma[2, 2])
 
-
-@wp.func
-def in_frustum(p_orig: wp.vec3, view_matrix: wp.mat44):
-    # bring point to screen space
-    p_view = wp.transform_point(view_matrix, p_orig)
-
-    return p_view
-
 @wp.kernel
 def wp_preprocess(
     orig_points: wp.array(dtype=wp.vec3),
@@ -133,23 +125,17 @@ def wp_preprocess(
     
     # For each Gaussian
     p_orig = orig_points[i]
-    p_view = in_frustum(p_orig, view_matrix)
-    
+    p_view = view_matrix * wp.vec4(p_orig[0], p_orig[1], p_orig[2], 1.0)
+
     if p_view[2] <= 0.2:
         return
+
+    p_hom = proj_matrix * wp.vec4(p_orig[0], p_orig[1], p_orig[2], 1.0)
     
-    p_hom = wp.vec4(p_view[0], p_view[1], p_view[2], 1.0)
-    p_hom = proj_matrix * p_hom
     p_w = 1.0 / (p_hom[3] + 0.0000001)
     p_proj = wp.vec3(p_hom[0] * p_w, p_hom[1] * p_w, p_hom[2] * p_w)
+
     # print(p_proj)
-    
-    # float3 p_orig = { orig_points[3 * idx], orig_points[3 * idx + 1], orig_points[3 * idx + 2] };
-	# float4 p_hom = transformPoint4x4(p_orig, projmatrix);
-	# float p_w = 1.0f / (p_hom.w + 0.0000001f);
-	# float3 p_proj = { p_hom.x * p_w, p_hom.y * p_w, p_hom.z * p_w };
-
-
     cov3d = compute_cov3d(scales[i], scale_modifier, rotations[i])
     cov3Ds[i] = cov3d
     # Compute 2D covariance matrix
@@ -638,6 +624,7 @@ def render_gaussians(
     print("view_matrix", view_matrix_warp)
     print("proj_matrix", proj_matrix_warp)
     print("campos", campos_warp)
+    # exit()
     # Launch preprocessing kernel
     wp.launch(
         kernel=wp_preprocess,

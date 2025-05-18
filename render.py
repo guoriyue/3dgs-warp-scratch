@@ -19,13 +19,16 @@ def setup_example_scene(image_width=1800, image_height=1800, fovx=45.0, fovy=45.
     # Camera setup
     T = np.array([0, 0, 5], dtype=np.float32)
     R = np.array([[1, 0, 0], [0, 1, 0], [0, 0, -1]], dtype=np.float32)
+    world_to_camera = np.eye(4, dtype=np.float32)
+    world_to_camera[:3, :3] = R
+    world_to_camera[:3, 3] = T
+    world_to_camera = world_to_camera.T
     
     # Compute matrices
     view_matrix = world_to_view(R=R, t=T)
-    proj_matrix = projection_matrix(fovx=fovx, fovy=fovy, znear=znear, zfar=zfar)
-    full_proj_matrix = view_matrix @ proj_matrix
+    proj_matrix = projection_matrix(fovx=fovx, fovy=fovy, znear=znear, zfar=zfar).T
+    full_proj_matrix = world_to_camera @ proj_matrix
     
-    world_to_camera = np.linalg.inv(view_matrix).T
     camera_center = np.linalg.inv(world_to_camera)[3, :3]
     
     # Compute FOV parameters
@@ -41,6 +44,7 @@ def setup_example_scene(image_width=1800, image_height=1800, fovx=45.0, fovy=45.
         'camera_center': camera_center,
         'view_matrix': view_matrix,
         'proj_matrix': proj_matrix,
+        'world_to_camera': world_to_camera,
         'full_proj_matrix': full_proj_matrix,
         'tan_fovx': tan_fovx,
         'tan_fovy': tan_fovy,
@@ -51,7 +55,7 @@ def setup_example_scene(image_width=1800, image_height=1800, fovx=45.0, fovy=45.
     }
     
     # Gaussian setup
-    pts = np.array([[2, 0, -2], [0, 2, -2], [-2, 0, -2]], dtype=np.float32)
+    pts = np.array([[-1, -1, -2], [0, 1, -2], [1, -1, -2]], dtype=np.float32)
     n = len(pts)
     
     # Hard-coded SHs for debugging

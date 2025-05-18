@@ -23,7 +23,9 @@ def load_camera(camera_info):
     T = world_to_camera[:3, 3]
     
     
+    world_to_camera[3, 3] = 1.
     world_to_camera = world_to_camera.T
+
     
     width = camera_info.get("width")
     height = camera_info.get("height")
@@ -42,8 +44,8 @@ def load_camera(camera_info):
     # Create projection matrix
     znear = 0.01
     zfar = 100.0
-    proj_matrix = projection_matrix(fovx=fovx, fovy=fovy, znear=znear, zfar=zfar)
-    full_proj_matrix = view_matrix @ proj_matrix
+    proj_matrix = projection_matrix(fovx=fovx, fovy=fovy, znear=znear, zfar=zfar).T
+    full_proj_matrix = world_to_camera @ proj_matrix
     
     # Calculate other parameters
     tan_fovx = np.tan(fovx * 0.5)

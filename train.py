@@ -429,7 +429,7 @@ class NeRFGaussianSplattingTrainer:
             scales=self.params['scales'].numpy(),
             rotations=self.params['rotations'].numpy(),
             scale_modifier=self.config['scale_modifier'],
-            viewmatrix=self.cameras[camera_idx]['view_matrix'],
+            viewmatrix=self.cameras[camera_idx]['world_to_camera'],
             projmatrix=self.cameras[camera_idx]['full_proj_matrix'],
             tan_fovx=self.cameras[camera_idx]['tan_fovx'],
             tan_fovy=self.cameras[camera_idx]['tan_fovy'],
@@ -550,7 +550,7 @@ class NeRFGaussianSplattingTrainer:
                     scales=self.params['scales'].numpy(),
                     rotations=self.params['rotations'].numpy(),
                     scale_modifier=self.config['scale_modifier'],
-                    viewmatrix=self.cameras[camera_idx]['view_matrix'],
+                    viewmatrix=self.cameras[camera_idx]['world_to_camera'],
                     projmatrix=self.cameras[camera_idx]['full_proj_matrix'],
                     tan_fovx=self.cameras[camera_idx]['tan_fovx'],
                     tan_fovy=self.cameras[camera_idx]['tan_fovy'],
@@ -586,7 +586,7 @@ class NeRFGaussianSplattingTrainer:
                 
                 # Prepare camera parameters
                 camera = self.cameras[camera_idx]
-                view_matrix = wp.mat44(camera['view_matrix'].flatten())
+                view_matrix = wp.mat44(camera['world_to_camera'].flatten())
                 proj_matrix = wp.mat44(camera['full_proj_matrix'].flatten())
                 campos = wp.vec3(camera['camera_center'][0], camera['camera_center'][1], camera['camera_center'][2])
 
