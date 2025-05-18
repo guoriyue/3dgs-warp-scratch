@@ -140,7 +140,6 @@ def wp_preprocess(
     # Compute 2D covariance matrix
     cov2d = compute_cov2d(p_orig, cov3d, view_matrix, tan_fovx, tan_fovy, float(W), float(H))
     
-    
     # Constants
     h_var = 0.3
     W_float = float(W)
@@ -170,7 +169,7 @@ def wp_preprocess(
     my_radius = wp.ceil(3.0 * wp.sqrt(wp.max(lambda1, lambda2)))
     # Convert to pixel coordinates
     point_image = wp.vec2(ndc2pix(p_proj[0], W_float), ndc2pix(p_proj[1], H_float))
-    print(point_image)
+
     # Get rectangle of affected tiles
     rect_min_x, rect_min_y, rect_max_x, rect_max_y = get_rect(point_image, my_radius, tile_grid)
     # Skip if rectangle has 0 area
@@ -619,11 +618,7 @@ def render_gaussians(
         print(f"\nWARP RENDERING: {image_width}x{image_height} image, {num_points} gaussians")
         print(f"Colors: {'from SH' if colors is None else 'provided'}, SH degree: {degree}")
         print(f"Antialiasing: {antialiasing}, Prefiltered: {prefiltered}")
-    
-    print("view_matrix", view_matrix_warp)
-    print("proj_matrix", proj_matrix_warp)
-    print("campos", campos_warp)
-    # exit()
+
     # Launch preprocessing kernel
     wp.launch(
         kernel=wp_preprocess,
@@ -784,8 +779,7 @@ def render_gaussians(
             ]
         )
 
-    print("radii", radii.shape, radii.flatten()[:100])
-    exit()
+    # print("radii", radii.shape, radii.flatten()[:100])
     # Return rendered image, depth image, and intermediate buffers needed for backward pass
     return rendered_image, depth_image, {
         "radii": radii,
