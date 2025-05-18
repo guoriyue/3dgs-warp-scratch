@@ -26,7 +26,6 @@ wp.init()
 # Kernels for parameter updates
 @wp.kernel
 def init_gaussian_params(
-    camera_center: wp.vec3,
     positions: wp.array(dtype=wp.vec3),
     scales: wp.array(dtype=wp.vec3),
     rotations: wp.array(dtype=wp.vec4),
@@ -139,12 +138,11 @@ class NeRFGaussianSplattingTrainer:
         rotations = wp.zeros(self.num_points, dtype=wp.vec4)
         opacities = wp.zeros(self.num_points, dtype=float)
         shs = wp.zeros(self.num_points * 16, dtype=wp.vec3)  # 16 coeffs per point
-        camera_center, avg_back_dir = self.compute_initialization_center()
         # Launch kernel to initialize parameters
         wp.launch(
             init_gaussian_params,
             dim=self.num_points,
-            inputs=[camera_center, positions, scales, rotations, opacities, shs, self.num_points, self.config['initial_scale']]
+            inputs=[positions, scales, rotations, opacities, shs, self.num_points, self.config['initial_scale']]
         )
         
         np.random.seed(42)
@@ -180,37 +178,6 @@ class NeRFGaussianSplattingTrainer:
             'opacities': opacities,
             'shs': shs
         }
-    
-    def compute_initialization_center(self):
-        """
-        A better heuristic for the scene centre:
-
-        • For every camera, take its position P and its forward direction F
-        (negative Z axis in NeRF-synthetic).
-        • March 1.0 world-unit along F (so P + F) – that's roughly the object surface.
-        • Average those points.  Result ≈ centre of the lego excavator.
-        • Return both the average centre and the average *backward* direction
-        (useful if you later need a canonical 'view' dir).
-        """
-        pts_on_object = []
-        back_dirs     = []
-
-        for cam in self.cameras:
-            P = np.asarray(cam["T"], dtype=np.float32)
-
-            # camera forward is -R[:,2]  (NeRF convention)
-            fwd = -cam["R"][:, 2]
-            fwd /= np.linalg.norm(fwd)
-
-            pts_on_object.append(P + fwd * 1.0)   # 1-unit in front
-            back_dirs.append(-fwd)                # 'scene → camera' dir for later
-
-        scene_center = np.mean(pts_on_object, axis=0)
-        avg_back_dir = np.mean(back_dirs, axis=0)
-        avg_back_dir /= np.linalg.norm(avg_back_dir)
-
-        print("Better scene centre :", scene_center)
-        return scene_center, avg_back_dir
 
 
     def load_nerf_data(self, datasplit):
@@ -583,18 +550,19 @@ class NeRFGaussianSplattingTrainer:
                 # Calculate L1 loss
                 l1_val = l1_loss(rendered_image, target_image)
                 
-                # Calculate SSIM
-                ssim_val = ssim(rendered_image, target_image)
+                # # Calculate SSIM, not used
+                # ssim_val = ssim(rendered_image, target_image)
+                # # Combined loss with weighted SSIM
+                # lambda_dssim = self.config['lambda_dssim']
+                # # loss = (1 - λ) * L1 + λ * (1 - SSIM)
+                # loss = (1.0 - lambda_dssim) * l1_val + lambda_dssim * (1.0 - ssim_val)
                 
-                # Combined loss with weighted SSIM
-                lambda_dssim = self.config['lambda_dssim']
-                # loss = (1 - λ) * L1 + λ * (1 - SSIM)
-                loss = (1.0 - lambda_dssim) * l1_val + lambda_dssim * (1.0 - ssim_val)
+                loss = l1_val
                 self.losses.append(loss)
-                print("loss", loss)
+                
                 # Compute pixel gradients for image loss (dL/dColor)
                 pixel_grad_buffer = compute_image_gradients(
-                    rendered_image, target_image, lambda_dssim=lambda_dssim
+                    rendered_image, target_image, lambda_dssim=0
                 )
                 
                 # Prepare camera parameters

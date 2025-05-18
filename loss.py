@@ -145,7 +145,6 @@ def backprop_l1_pixel_gradients(
     # Store L1 gradients
     pixel_grad[j, i] = l1_grad
 
-# Python wrapper functions
 def l1_loss(rendered, target):
     """Compute L1 loss between rendered and target images"""
     height, width = rendered.shape[0], rendered.shape[1]
@@ -173,6 +172,7 @@ def l1_loss(rendered, target):
     
     # Get loss value
     loss = float(loss_buffer.numpy()[0]) / (width * height * 3)  # Normalize by pixel count and channels
+    np_loss_buffer = loss_buffer.numpy()
     return loss
 
 def ssim(rendered, target):
@@ -241,7 +241,6 @@ def compute_image_gradients(rendered, target, lambda_dssim=0.2):
     )
     
     # TODO: Add SSIM gradient
-    
     return pixel_grad
 
 @wp.kernel
