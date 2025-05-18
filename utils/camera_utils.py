@@ -37,12 +37,12 @@ def load_camera(camera_info):
     fovy = 2 * np.arctan(height / (2 * fy))
     
     # Create view matrix
-    view_matrix = world_to_view(R=R, t=T).T
+    view_matrix = world_to_view(R=R, t=T)
     
     # Create projection matrix
     znear = 0.01
     zfar = 100.0
-    proj_matrix = projection_matrix(fovx=fovx, fovy=fovy, znear=znear, zfar=zfar).T
+    proj_matrix = projection_matrix(fovx=fovx, fovy=fovy, znear=znear, zfar=zfar)
     full_proj_matrix = view_matrix @ proj_matrix
     
     # Calculate other parameters
