@@ -130,12 +130,11 @@ def wp_preprocess(
     if p_view[2] <= 0.2:
         return
 
-    p_hom = proj_matrix * wp.vec4(p_orig[0], p_orig[1], p_orig[2], 1.0)
+    p_hom = wp.vec4(p_orig[0], p_orig[1], p_orig[2], 1.0) * proj_matrix
     
     p_w = 1.0 / (p_hom[3] + 0.0000001)
     p_proj = wp.vec3(p_hom[0] * p_w, p_hom[1] * p_w, p_hom[2] * p_w)
 
-    # print(p_proj)
     cov3d = compute_cov3d(scales[i], scale_modifier, rotations[i])
     cov3Ds[i] = cov3d
     # Compute 2D covariance matrix
@@ -171,7 +170,7 @@ def wp_preprocess(
     my_radius = wp.ceil(3.0 * wp.sqrt(wp.max(lambda1, lambda2)))
     # Convert to pixel coordinates
     point_image = wp.vec2(ndc2pix(p_proj[0], W_float), ndc2pix(p_proj[1], H_float))
-
+    print(point_image)
     # Get rectangle of affected tiles
     rect_min_x, rect_min_y, rect_max_x, rect_max_y = get_rect(point_image, my_radius, tile_grid)
     # Skip if rectangle has 0 area
@@ -785,8 +784,8 @@ def render_gaussians(
             ]
         )
 
-    # print("radii", radii.shape, radii.flatten()[:100])
-    # exit()
+    print("radii", radii.shape, radii.flatten()[:100])
+    exit()
     # Return rendered image, depth image, and intermediate buffers needed for backward pass
     return rendered_image, depth_image, {
         "radii": radii,
