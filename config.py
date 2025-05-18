@@ -19,8 +19,8 @@ VEC6 = wp.types.vector(length=6, dtype=WP_FLOAT32)
 TORCH_FLOAT = torch.float32
 DEVICE = "cpu" # Use "cpu" or "cuda"
 
-TILE_M = wp.constant(50)
-TILE_N = wp.constant(50)
+TILE_M = wp.constant(16)
+TILE_N = wp.constant(16)
 TILE_THREADS = wp.constant(256)
 
 class GaussianParams:

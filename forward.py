@@ -8,9 +8,21 @@ wp.init()
 SH_C0 = 0.28209479177387814
 SH_C1 = 0.4886025119029199
 
+
+import warp as wp
+
+# Define the CUDA code snippets for bit reinterpretation
+float_to_uint32_snippet = """
+    return reinterpret_cast<uint32_t&>(x);
+"""
+
+@wp.func_native(float_to_uint32_snippet)
+def float_bits_to_uint32(x: float) -> wp.uint32:
+    ...
+
 @wp.func
 def ndc2pix(x: float, size: float) -> float:
-    return (x + 1.0) * 0.5 * size
+    return ((x + 1.0) * size - 1.0) * 0.5
 
 @wp.func
 def get_rect(p: wp.vec2, max_radius: float, tile_grid: wp.vec3):
@@ -129,7 +141,7 @@ def wp_preprocess(
     p_orig = orig_points[i]
     p_view = wp.vec4(p_orig[0], p_orig[1], p_orig[2], 1.0) * view_matrix
 
-    if p_view[2] <= 0.2:
+    if p_view[2] < 0.2:
         return
 
     p_hom = wp.vec4(p_orig[0], p_orig[1], p_orig[2], 1.0) * proj_matrix
@@ -172,7 +184,7 @@ def wp_preprocess(
     my_radius = wp.ceil(3.0 * wp.sqrt(wp.max(lambda1, lambda2)))
     # Convert to pixel coordinates
     point_image = wp.vec2(ndc2pix(p_proj[0], W_float), ndc2pix(p_proj[1], H_float))
-
+    
     # Get rectangle of affected tiles
     rect_min_x, rect_min_y, rect_max_x, rect_max_y = get_rect(point_image, my_radius, tile_grid)
     
@@ -417,14 +429,16 @@ def wp_duplicate_with_keys(
     depth_val = depths[tid]
 
     rect_min_x, rect_min_y, rect_max_x, rect_max_y = get_rect(pos, float(r), tile_grid)
+    
     for y in range(rect_min_y, rect_max_y):
         for x in range(rect_min_x, rect_max_x):
             tile_id = y * int(tile_grid[0]) + x
             # Convert to int64 to avoid overflow during bit shift
             tile_id_64 = wp.int64(tile_id)
             shifted = tile_id_64 << wp.int64(32)
+            depth_bits = wp.int64(float_bits_to_uint32(depth_val))
             # Combine tile ID and depth into single key
-            key = wp.int64(shifted) | wp.int64(depth_val)
+            key = wp.int64(shifted) | depth_bits
 
             point_list_keys_unsorted[offset] = key
             point_list_unsorted[offset] = tid
@@ -667,13 +681,11 @@ def render_gaussians(
             point_offsets
         ]
     )
-
     num_rendered = int(wp.to_torch(point_offsets)[-1].item())  # total number of duplicated entries
-    
     if num_rendered > (1 << 30):
         # radix sort needs 2x memory
         raise ValueError("Number of rendered points exceeds the maximum supported by Warp.")
-    
+
     point_list_keys_unsorted = wp.zeros(num_rendered, dtype=wp.int64, device=DEVICE)
     point_list_unsorted = wp.zeros(num_rendered, dtype=int, device=DEVICE)
     point_list_keys = wp.zeros(num_rendered, dtype=wp.int64, device=DEVICE)
@@ -691,7 +703,6 @@ def render_gaussians(
             tile_grid
         ]
     )
-
     point_list_keys_unsorted_padded = wp.zeros(num_rendered * 2, dtype=wp.int64, device=DEVICE) 
     point_list_unsorted_padded = wp.zeros(num_rendered * 2, dtype=int, device=DEVICE)
     
@@ -726,10 +737,7 @@ def render_gaussians(
     
     tile_count = int(tile_grid[0] * tile_grid[1])
     ranges = wp.zeros(tile_count, dtype=wp.vec2i, device=DEVICE)  # each is (start, end)
-
-    print("num_rendered", num_rendered)
-    print("point_list", point_list.shape, point_list.flatten()[:100])
-    
+    np_point_list_keys = wp.to_torch(point_list_keys).cpu().numpy()
     if num_rendered > 0:
         wp.launch(
             kernel=wp_identify_tile_ranges,  # You also need this kernel
@@ -741,9 +749,6 @@ def render_gaussians(
             ]
         )
         np_ranges = wp.to_torch(ranges).cpu().numpy()
-        for i in range(tile_count):
-            print("ranges[", i, "]", np_ranges[i])
-        # print("ranges", ranges.shape, ranges.flatten())
         
         num_tiles = tile_count
         
@@ -785,8 +790,6 @@ def render_gaussians(
             ]
         )
 
-    # print("radii", radii.shape, radii.flatten()[:100])
-    # Return rendered image, depth image, and intermediate buffers needed for backward pass
     return rendered_image, depth_image, {
         "radii": radii,
         "point_offsets": point_offsets,

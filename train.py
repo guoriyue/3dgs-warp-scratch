@@ -491,10 +491,13 @@ class NeRFGaussianSplattingTrainer:
 
         # ------ save render / target PNG ---------------------------------
         def save_rgb(arr_f32, stem):
+            # Handle case where arr_f32 has shape (3, H, W) - transpose to (H, W, 3)
+            if arr_f32.shape[0] == 3 and len(arr_f32.shape) == 3:
+                arr_f32 = np.transpose(arr_f32, (1, 2, 0))
             img8 = (np.clip(arr_f32, 0, 1) * 255).astype(np.uint8)
             imageio.imwrite(self.output_path / f"{stem}_{it:06d}.png", img8)
-
-        save_rgb(wp.to_torch(rendered_image).cpu().numpy(), "render")
+        
+        save_rgb(rendered_image if isinstance(rendered_image, np.ndarray) else wp.to_torch(rendered_image).cpu().numpy(), "render")
         save_rgb(target_image,   "target")
 
         # ------ make 2-D projection scatter ------------------------------
@@ -571,12 +574,11 @@ class NeRFGaussianSplattingTrainer:
                 )
 
                 radii = wp.to_torch(self.intermediate_buffers["radii"]).cpu().numpy()
-                print("radii", radii.shape, radii.flatten()[:100])
-                self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
-                print("rendered_image", rendered_image.shape, rendered_image.flatten()[:100])
-                exit()
+                np_rendered_image = wp.to_torch(rendered_image).cpu().numpy()
+                np_rendered_image = np_rendered_image.transpose(2, 0, 1)
+
                 if iteration % 50 == 0:
-                    self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
+                    self.debug_log_and_save_images(np_rendered_image, target_image, depth_image, camera_idx, iteration)
 
                 # Calculate L1 loss
                 l1_val = l1_loss(rendered_image, target_image)
@@ -589,7 +591,7 @@ class NeRFGaussianSplattingTrainer:
                 # loss = (1 - λ) * L1 + λ * (1 - SSIM)
                 loss = (1.0 - lambda_dssim) * l1_val + lambda_dssim * (1.0 - ssim_val)
                 self.losses.append(loss)
-                
+                print("loss", loss)
                 # Compute pixel gradients for image loss (dL/dColor)
                 pixel_grad_buffer = compute_image_gradients(
                     rendered_image, target_image, lambda_dssim=lambda_dssim
@@ -695,6 +697,8 @@ class NeRFGaussianSplattingTrainer:
                 print('grad_rot', np.max(np.abs(self.grads['rotations'].numpy())), np.mean(np.abs(self.grads['rotations'].numpy())))
                 print('grad_sh', np.max(np.abs(self.grads['shs'].numpy())), np.mean(np.abs(self.grads['shs'].numpy())))
                 print('grad_opac', np.max(np.abs(self.grads['opacities'].numpy())), np.mean(np.abs(self.grads['opacities'].numpy())))
+                
+                exit()
                 # Update progress bar
                 pbar.update(1)
                 pbar.set_description(f"Loss: {loss:.6f}")
