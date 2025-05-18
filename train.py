@@ -109,6 +109,7 @@ class NeRFGaussianSplattingTrainer:
         print(f"Loading NeRF dataset from {self.dataset_path}")
         self.cameras, self.image_paths = self.load_nerf_data("train")
         self.val_cameras, self.val_image_paths = self.load_nerf_data("val")
+        self.cameras, self.image_paths = self.load_nerf_data("val")
         self.test_cameras, self.test_image_paths = self.load_nerf_data("test")
         print(f"Loaded {len(self.cameras)} train cameras and {len(self.image_paths)} train images")
         print(f"Loaded {len(self.val_cameras)} val cameras and {len(self.val_image_paths)} val images")
@@ -539,7 +540,8 @@ class NeRFGaussianSplattingTrainer:
             for iteration in range(num_iterations):
                 # Select a random camera and corresponding image
                 # camera_idx = np.random.randint(0, len(self.cameras))
-                camera_idx = 42
+                # camera_idx = 42
+                camera_idx = 0
                 image_path = self.image_paths[camera_idx]
                 target_image = self.load_image(image_path)
                 
@@ -568,11 +570,11 @@ class NeRFGaussianSplattingTrainer:
                     clamped=True
                 )
 
-                # radii = wp.to_torch(self.intermediate_buffers["radii"]).cpu().numpy()
-                # print("radii", radii.shape, radii.flatten()[:100])
-                # self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
-
-                # exit()
+                radii = wp.to_torch(self.intermediate_buffers["radii"]).cpu().numpy()
+                print("radii", radii.shape, radii.flatten()[:100])
+                self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
+                print("rendered_image", rendered_image.shape, rendered_image.flatten()[:100])
+                exit()
                 if iteration % 50 == 0:
                     self.debug_log_and_save_images(rendered_image, target_image, depth_image, camera_idx, iteration)
 

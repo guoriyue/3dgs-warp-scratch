@@ -55,7 +55,7 @@ def setup_example_scene(image_width=1800, image_height=1800, fovx=45.0, fovy=45.
     }
     
     # Gaussian setup
-    pts = np.array([[-1, -1, -2], [0, 1, -2], [1, -1, -2]], dtype=np.float32)
+    pts = np.array([[-5, 0, -10], [0, 0, -10], [5, 0, -10]], dtype=np.float32)
     n = len(pts)
     
     # Hard-coded SHs for debugging
