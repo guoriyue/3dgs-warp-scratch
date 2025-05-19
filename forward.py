@@ -737,7 +737,7 @@ def render_gaussians(
     
     tile_count = int(tile_grid[0] * tile_grid[1])
     ranges = wp.zeros(tile_count, dtype=wp.vec2i, device=DEVICE)  # each is (start, end)
-    np_point_list_keys = wp.to_torch(point_list_keys).cpu().numpy()
+    
     if num_rendered > 0:
         wp.launch(
             kernel=wp_identify_tile_ranges,  # You also need this kernel

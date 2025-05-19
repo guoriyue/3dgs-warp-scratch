@@ -108,7 +108,6 @@ class NeRFGaussianSplattingTrainer:
         print(f"Loading NeRF dataset from {self.dataset_path}")
         self.cameras, self.image_paths = self.load_nerf_data("train")
         self.val_cameras, self.val_image_paths = self.load_nerf_data("val")
-        self.cameras, self.image_paths = self.load_nerf_data("val")
         self.test_cameras, self.test_image_paths = self.load_nerf_data("test")
         print(f"Loaded {len(self.cameras)} train cameras and {len(self.image_paths)} train images")
         print(f"Loaded {len(self.val_cameras)} val cameras and {len(self.val_image_paths)} val images")
@@ -510,8 +509,7 @@ class NeRFGaussianSplattingTrainer:
             for iteration in range(num_iterations):
                 # Select a random camera and corresponding image
                 # camera_idx = np.random.randint(0, len(self.cameras))
-                # camera_idx = 42
-                camera_idx = 0
+                camera_idx = 42
                 image_path = self.image_paths[camera_idx]
                 target_image = self.load_image(image_path)
                 
@@ -560,10 +558,15 @@ class NeRFGaussianSplattingTrainer:
                 loss = l1_val
                 self.losses.append(loss)
                 
+                print("loss", loss)
+                
                 # Compute pixel gradients for image loss (dL/dColor)
                 pixel_grad_buffer = compute_image_gradients(
                     rendered_image, target_image, lambda_dssim=0
                 )
+                
+                # 1e-6
+                pixel_grad_buffer = np.ones_like(pixel_grad_buffer) * 1e-6
                 
                 # Prepare camera parameters
                 camera = self.cameras[camera_idx]
@@ -579,6 +582,12 @@ class NeRFGaussianSplattingTrainer:
                     'rgb': self.intermediate_buffers['rgb'],
                     'clamped': self.intermediate_buffers['clamped_state']
                 }
+                print("radii", geom_buffer['radii'].numpy().flatten()[:100])
+                print("means2D", geom_buffer['means2D'].numpy().flatten()[:100])
+                print("conic_opacity", geom_buffer['conic_opacity'].numpy().flatten()[:100])
+                print("rgb", geom_buffer['rgb'].numpy().flatten()[:100])
+                print("clamped", geom_buffer['clamped'].numpy().flatten()[:100])
+                exit()
                 
                 binning_buffer = {
                     'point_list': self.intermediate_buffers['point_list']
@@ -589,7 +598,7 @@ class NeRFGaussianSplattingTrainer:
                     'final_Ts': self.intermediate_buffers['final_Ts'],
                     'n_contrib': self.intermediate_buffers['n_contrib']
                 }
-                print("pixel_grad_buffer", pixel_grad_buffer)
+                
                 gradients = backward(
                     # Core parameters
                     background=np.array(self.config['background_color'], dtype=np.float32),
@@ -632,6 +641,9 @@ class NeRFGaussianSplattingTrainer:
                     degree=self.config['sh_degree'],
                     debug=False
                 )
+                for key, value in gradients.items():
+                    print(key, value.shape, wp.to_torch(value).numpy().flatten()[:100])
+                exit()
                 
                 # 3. Copy gradients from backward result to the optimizer's gradient buffers
                 wp.copy(self.grads['positions'], gradients['dL_dmean3D'])
@@ -640,32 +652,10 @@ class NeRFGaussianSplattingTrainer:
                 wp.copy(self.grads['opacities'], gradients['dL_dopacity'])
                 wp.copy(self.grads['shs'], gradients['dL_dshs'])
 
-                original_position_grads = self.params['positions'].numpy().copy()
-                original_scale_grads = self.params['scales'].numpy().copy()
-                original_rotation_grads = self.params['rotations'].numpy().copy()
-                original_opacity_grads = self.params['opacities'].numpy().copy()
-                original_sh_grads = self.params['shs'].numpy().copy()
                 # Update parameters
                 self.optimizer_step(iteration)
-                wp.synchronize()  
-                updated_position_grads = self.params['positions'].numpy().copy()
-                updated_scale_grads = self.params['scales'].numpy().copy()
-                updated_rotation_grads = self.params['rotations'].numpy().copy()
-                updated_opacity_grads = self.params['opacities'].numpy().copy()
-                updated_sh_grads = self.params['shs'].numpy().copy()
-                
-                print('α max / mean',  np.max(self.params['opacities']), np.mean(self.params['opacities']))
-                print('σ max',          np.max(self.params['scales']))
-                print('|grad| max positions', np.max(np.abs(self.grads['positions'].numpy())))
-                grad_scale = np.max(np.abs(self.grads['scales'].numpy()))
-                grad_rot = np.max(np.abs(self.grads['rotations'].numpy()))
-                grad_sh = np.max(np.abs(self.grads['shs'].numpy()))
-                grad_opac = np.max(np.abs(self.grads['opacities'].numpy()))
-                print('grad_scale', np.max(np.abs(self.grads['scales'].numpy())), np.mean(np.abs(self.grads['scales'].numpy())))
-                print('grad_rot', np.max(np.abs(self.grads['rotations'].numpy())), np.mean(np.abs(self.grads['rotations'].numpy())))
-                print('grad_sh', np.max(np.abs(self.grads['shs'].numpy())), np.mean(np.abs(self.grads['shs'].numpy())))
-                print('grad_opac', np.max(np.abs(self.grads['opacities'].numpy())), np.mean(np.abs(self.grads['opacities'].numpy())))
-                
+     
+      
                 exit()
                 # Update progress bar
                 pbar.update(1)

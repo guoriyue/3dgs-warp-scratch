@@ -1208,6 +1208,14 @@ def backward(
         dL_dinvdepths=dL_dinvdepths  # Pass depth gradient output
     )
     
+    print("dL_dinvdepths", dL_dinvdepths.numpy().flatten()[:100])
+    print("dL_dpixels", dL_dpixels.numpy().flatten()[:100])
+    print("dL_dmean2D", dL_dmean2D.numpy().flatten()[:100])
+    print("dL_dconic", dL_dconic.numpy().flatten()[:100])
+    print("dL_dopacity", dL_dopacity.numpy().flatten()[:100])
+    print("dL_dcolor", dL_dcolor.numpy().flatten()[:100])
+    exit()
+    
     # --- Step 2: Compute gradients for 3D parameters ---
     backward_preprocess(
         num_points=num_points,
