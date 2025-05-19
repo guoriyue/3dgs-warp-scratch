@@ -589,7 +589,8 @@ class NeRFGaussianSplattingTrainer:
                     'final_Ts': self.intermediate_buffers['final_Ts'],
                     'n_contrib': self.intermediate_buffers['n_contrib']
                 }
-                
+                print("pixel_grad_buffer", pixel_grad_buffer)
+                exit()
                 gradients = backward(
                     # Core parameters
                     background=np.array(self.config['background_color'], dtype=np.float32),
