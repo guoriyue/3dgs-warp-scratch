@@ -233,7 +233,7 @@ def compute_image_gradients(rendered, target, lambda_dssim=0.2):
     pixel_grad = wp.zeros((height, width), dtype=wp.vec3, device=DEVICE)
     
     # Compute L1 loss gradient
-    l1_weight = 1.0 - lambda_dssim
+    l1_weight = (1.0 - lambda_dssim) / (height * width * 3.0)
     wp.launch(
         backprop_l1_pixel_gradients,
         dim=(width, height),
