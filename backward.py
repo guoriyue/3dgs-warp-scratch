@@ -601,7 +601,7 @@ def wp_render_backward_kernel(
         
         # Compute Gaussian power
         power = -0.5 * (con_o[0] * d_x * d_x + con_o[2] * d_y * d_y) - con_o[1] * d_x * d_y
-        
+     
         # Skip if power is positive (too far away)
         if power > 0.0:
             continue
@@ -614,10 +614,8 @@ def wp_render_backward_kernel(
         if alpha < (1.0 / 255.0):
             continue
             
-        # Update accumulated transparency
-        if alpha < 1.0:  # Avoid division by zero
-            T = T / (1.0 - alpha)
-            
+        T = T / (1.0 - alpha)
+        
         # Gradient factor for color contribution
         dchannel_dcolor = alpha * T
         
@@ -625,13 +623,17 @@ def wp_render_backward_kernel(
         dL_dalpha = 0.0
         
         # Update color accumulation and compute color gradients
-        new_accum_rec = last_alpha * last_color + (1.0 - last_alpha) * accum_rec
-        dL_dalpha = wp.dot(color - accum_rec, dL_dpixel)
         
-        # Update accumulated values for next iteration
-        accum_rec = new_accum_rec
+        accum_rec = last_alpha * last_color + (1.0 - last_alpha) * accum_rec
+        dL_dchannel = dL_dpixel
         last_color = color
         
+        dL_dalpha = wp.dot(color - accum_rec, dL_dpixel)
+        
+        if pix_x == 120 and pix_y == 120:
+            print(color)
+        wp.atomic_add(dL_dcolors, gaussian_id, dchannel_dcolor * dL_dchannel)
+
         # Handle depth gradients if enabled
         if use_invdepth:
             invd = 1.0 / depth
@@ -643,7 +645,7 @@ def wp_render_backward_kernel(
         # Scale dL_dalpha by T
         dL_dalpha *= T
         last_alpha = alpha
-        
+
         # Account for background color contribution
         bg_dot_dpixel = wp.dot(bg_color, dL_dpixel)
         dL_dalpha += (-T_final / (1.0 - alpha)) * bg_dot_dpixel
@@ -670,9 +672,6 @@ def wp_render_backward_kernel(
         
         # Update gradients w.r.t. opacity
         wp.atomic_add(dL_dopacity, gaussian_id, G * dL_dalpha)
-        
-        # Update gradients w.r.t. colors
-        wp.atomic_add(dL_dcolors, gaussian_id, dchannel_dcolor * dL_dpixel)
 
 @wp.kernel
 def compute_projection_backward_kernel(
@@ -913,29 +912,6 @@ def backward_render(
     # Calculate tile grid dimensions
     tile_grid_x = (width + TILE_M - 1) // TILE_M
     tile_grid_y = (height + TILE_N - 1) // TILE_N
-    # Check if dL_dpixels and dL_invdepths are all zeros
-    # Convert Warp arrays to PyTorch tensors for analysis
-    dL_dpixels_torch = wp.to_torch(dL_dpixels)
-    if use_invdepth:
-        dL_invdepths_torch = wp.to_torch(dL_invdepths)
-    else:
-        # Create a dummy tensor of zeros if inverse depth is not used
-        dL_invdepths_torch = torch.zeros_like(dL_dpixels_torch[:,:,0])
-    # Check if all elements are zeros (or very close to zero)
-    dpixels_all_zeros = torch.all(torch.abs(dL_dpixels_torch) < 1e-6).item()
-    dinvdepths_all_zeros = torch.all(torch.abs(dL_invdepths_torch) < 1e-6).item()
-    
-    print(f"dL_dpixels all zeros: {dpixels_all_zeros}")
-    print(f"dL_invdepths all zeros: {dinvdepths_all_zeros}")
-    
-    # Print some statistics if not all zeros
-    if not dpixels_all_zeros:
-        print(f"dL_dpixels non-zero count: {torch.sum(torch.abs(dL_dpixels_torch) >= 1e-6).item()}")
-        print(f"dL_dpixels max value: {torch.max(torch.abs(dL_dpixels_torch)).item()}")
-    
-    if not dinvdepths_all_zeros:
-        print(f"dL_invdepths non-zero count: {torch.sum(torch.abs(dL_invdepths_torch) >= 1e-6).item()}")
-        print(f"dL_invdepths max value: {torch.max(torch.abs(dL_invdepths_torch)).item()}")
     
     # Launch the backward rendering kernel
     wp.launch(
@@ -964,48 +940,13 @@ def backward_render(
             dL_dinvdepths  # Added depth gradient output
         ],
     )
-    print("wp_render_backward_kernel done")
     
-    # Convert to torch and print non-zero values
-    dL_dmean2D_torch = wp.to_torch(dL_dmean2D)
-    dL_dconic2D_torch = wp.to_torch(dL_dconic2D)
-    dL_dopacity_torch = wp.to_torch(dL_dopacity)
-    dL_dcolors_torch = wp.to_torch(dL_dcolors)
-    dL_dinvdepths_torch = wp.to_torch(dL_dinvdepths)
-
-    # Print non-zero values for each gradient
-    print("\nNon-zero dL_dmean2D:")
-    non_zero_mean2D = torch.nonzero(dL_dmean2D_torch.abs() > 1e-6)
-    if len(non_zero_mean2D) > 0:
-        print(dL_dmean2D_torch[non_zero_mean2D[:, 0]])
-
-    print("\nNon-zero dL_dconic2D:")
-    non_zero_conic2D = torch.nonzero(dL_dconic2D_torch.abs() > 1e-6)
-    if len(non_zero_conic2D) > 0:
-        print(dL_dconic2D_torch[non_zero_conic2D[:, 0]])
-
-    print("\nNon-zero dL_dopacity:")
-    non_zero_opacity = torch.nonzero(dL_dopacity_torch.abs() > 1e-6)
-    if len(non_zero_opacity) > 0:
-        print(dL_dopacity_torch[non_zero_opacity[:, 0]])
-
-    print("\nNon-zero dL_dcolors:")
-    non_zero_colors = torch.nonzero(dL_dcolors_torch.abs() > 1e-6)
-    if len(non_zero_colors) > 0:
-        print(dL_dcolors_torch[non_zero_colors[:, 0]])
-
-    print("\nNon-zero dL_dinvdepths:")
-    non_zero_invdepths = torch.nonzero(dL_dinvdepths_torch.abs() > 1e-6)
-    if len(non_zero_invdepths) > 0:
-        print(dL_dinvdepths_torch[non_zero_invdepths[:, 0]])
-
 def backward(
     # --- Core parameters ---
     background,
     means3D,
     dL_dpixels,
     # --- Model parameters ---
-    colors=None,
     opacity=None,
     shs=None,
     scales=None,
@@ -1049,7 +990,6 @@ def backward(
         background: Background color as numpy array, torch tensor, or wp.vec3 (3,)
         means3D: 3D positions as numpy array, torch tensor, or wp.array (N, 3)
         dL_dpixels: Gradient of loss w.r.t. output pixels (H, W, 3)
-        colors: Optional precomputed RGB colors (N, 3)
         opacity: Opacity values (N, 1) or (N,)
         shs: Spherical harmonics coefficients (N, D, 3) or flattened (N*D, 3)
         scales: Scale parameters (N, 3)
@@ -1099,7 +1039,6 @@ def backward(
     num_points = means3D_warp.shape[0]
     
     # Convert optional parameters if provided
-    colors_warp = to_warp_array(colors, wp.vec3) if colors is not None else None
     opacity_warp = to_warp_array(opacity, float, flatten=True) if opacity is not None else None
     
     # SH coefficients need special handling for flattening
@@ -1178,7 +1117,6 @@ def backward(
     dL_drot = wp.zeros(num_points, dtype=wp.vec4, device=DEVICE)
     
     # Use precomputed colors if provided, otherwise use colors from forward pass
-    color_ptr = colors_warp if colors_warp is not None else rgb_warp
     
     tile_grid = wp.vec3((image_width + TILE_M - 1) // TILE_M, 
                         (image_height + TILE_N - 1) // TILE_N, 
@@ -1194,7 +1132,7 @@ def backward(
         tile_grid=tile_grid,
         points_xy_image=means2D_warp,
         conic_opacity=conic_opacity_warp,
-        colors=color_ptr,
+        colors=rgb_warp,
         depths=depth_warp,  # Pass depth values
         final_Ts=final_Ts,
         n_contrib=n_contrib,
@@ -1208,12 +1146,11 @@ def backward(
         dL_dinvdepths=dL_dinvdepths  # Pass depth gradient output
     )
     
-    print("dL_dinvdepths", dL_dinvdepths.numpy().flatten()[:100])
-    print("dL_dpixels", dL_dpixels.numpy().flatten()[:100])
-    print("dL_dmean2D", dL_dmean2D.numpy().flatten()[:100])
-    print("dL_dconic", dL_dconic.numpy().flatten()[:100])
-    print("dL_dopacity", dL_dopacity.numpy().flatten()[:100])
-    print("dL_dcolor", dL_dcolor.numpy().flatten()[:100])
+    print("dL_dinvdepths", wp.to_torch(dL_dinvdepths).numpy().flatten()[:100])
+    print("dL_dmean2D", wp.to_torch(dL_dmean2D).numpy().flatten()[:100])
+    print("dL_dconic", wp.to_torch(dL_dconic).numpy().flatten()[:100])
+    print("dL_dopacity", wp.to_torch(dL_dopacity).numpy().flatten()[:100])
+    print("dL_dcolor", wp.to_torch(dL_dcolor).numpy().flatten()[:100])
     exit()
     
     # --- Step 2: Compute gradients for 3D parameters ---

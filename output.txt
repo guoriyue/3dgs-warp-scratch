@@ -1,0 +1,34 @@
+/Users/guomingfei/Desktop/warp-nerf-scratch/train.py:197: DeprecationWarning: Starting with ImageIO v3 the behavior of this function will switch to that of iio.v3.imread. To keep the current behavior (and make this warning disappear) use `import imageio.v2 as imageio` or call `imageio.v2.imread` directly.
+  img = imageio.imread(first_img_path)
+Warp 1.7.0 initialized:
+   CUDA not enabled in this build
+   Devices:
+     "cpu"      : "arm"
+   Kernel cache:
+     /Users/guomingfei/Library/Caches/warp/1.7.0
+Loading NeRF dataset from /Users/guomingfei/Desktop/warp-nerf-scratch/data/nerf_synthetic/lego
+Using image dimensions from dataset: 800x800
+Traceback (most recent call last):
+  File "/Users/guomingfei/Desktop/warp-nerf-scratch/train.py", line 690, in <module>
+    main()
+  File "/Users/guomingfei/Desktop/warp-nerf-scratch/train.py", line 681, in main
+    trainer = NeRFGaussianSplattingTrainer(
+  File "/Users/guomingfei/Desktop/warp-nerf-scratch/train.py", line 110, in __init__
+    self.val_cameras, self.val_image_paths = self.load_nerf_data("val")
+  File "/Users/guomingfei/Desktop/warp-nerf-scratch/train.py", line 197, in load_nerf_data
+    img = imageio.imread(first_img_path)
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/imageio/__init__.py", line 97, in imread
+    return imread_v2(uri, format=format, **kwargs)
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/imageio/v2.py", line 360, in imread
+    result = file.read(index=0, **kwargs)
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/imageio/plugins/pillow.py", line 252, in read
+    image = self._apply_transforms(
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/imageio/plugins/pillow.py", line 333, in _apply_transforms
+    image = np.asarray(image)
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/PIL/Image.py", line 742, in __array_interface__
+    new["data"] = self.tobytes()
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/PIL/Image.py", line 802, in tobytes
+    self.load()
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/PIL/ImageFile.py", line 293, in load
+    n, err_code = decoder.decode(b)
+KeyboardInterrupt

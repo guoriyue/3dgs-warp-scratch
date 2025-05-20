@@ -582,12 +582,11 @@ class NeRFGaussianSplattingTrainer:
                     'rgb': self.intermediate_buffers['rgb'],
                     'clamped': self.intermediate_buffers['clamped_state']
                 }
-                print("radii", geom_buffer['radii'].numpy().flatten()[:100])
-                print("means2D", geom_buffer['means2D'].numpy().flatten()[:100])
-                print("conic_opacity", geom_buffer['conic_opacity'].numpy().flatten()[:100])
-                print("rgb", geom_buffer['rgb'].numpy().flatten()[:100])
-                print("clamped", geom_buffer['clamped'].numpy().flatten()[:100])
-                exit()
+                # print("radii", geom_buffer['radii'].numpy().flatten()[:100])
+                # print("means2D", geom_buffer['means2D'].numpy().flatten()[:100])
+                # print("conic_opacity", geom_buffer['conic_opacity'].numpy().flatten()[:100])
+                # print("rgb", geom_buffer['rgb'].numpy().flatten()[:100])
+                # print("clamped", geom_buffer['clamped'].numpy().flatten()[:100])
                 
                 binning_buffer = {
                     'point_list': self.intermediate_buffers['point_list']
