@@ -588,6 +588,9 @@ def wp_render_backward_kernel(
     # Process Gaussians in back-to-front order
     for i in range(range_end - 1, first_kept - 1, -1):
         gaussian_id = point_list[i]
+        
+        if gaussian_id == 0:
+            print(colors[gaussian_id])
             
         # Get Gaussian parameters
         xy = points_xy_image[gaussian_id]
