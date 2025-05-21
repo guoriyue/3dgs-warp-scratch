@@ -339,6 +339,7 @@ def wp_render_gaussians(
     
     # Track the number of contributors to this pixel
     contributor_count = int(0)
+    last_contributor = int(0)
     
     # Iterate over all Gaussians influencing this tile
     for i in range(range_start, range_end):
@@ -354,6 +355,9 @@ def wp_render_gaussians(
         d_x = xy[0] - pixf_x
         d_y = xy[1] - pixf_y
         
+        # Increment contributor count for this pixel
+        contributor_count += 1
+        
         # Compute Gaussian power (exponent)
         power = -0.5 * (con_o[0] * d_x * d_x + con_o[2] * d_y * d_y) - con_o[1] * d_x * d_y
         
@@ -368,8 +372,6 @@ def wp_render_gaussians(
         if alpha < (1.0 / 255.0):
             continue
         
-        # Increment contributor count for this pixel
-        contributor_count += 1
         
         # Test if we're close to fully opaque
         test_T = T * (1.0 - alpha)
@@ -386,10 +388,12 @@ def wp_render_gaussians(
         
         # Update transmittance
         T = test_T
+        
+        last_contributor = contributor_count
     
     # Store final transmittance (T) and contributor count
     final_Ts[pix_y, pix_x] = T
-    n_contrib[pix_y, pix_x] = contributor_count
+    n_contrib[pix_y, pix_x] = last_contributor
     
     # Write final color to output buffer (color + background)
     rendered_image[pix_y, pix_x] = wp.vec3(
@@ -795,7 +799,7 @@ def render_gaussians(
         "point_offsets": point_offsets,
         "points_xy_image": points_xy_image,
         "depths": depths,
-        "rgb": rgb,
+        "colors": rgb,
         "cov3Ds": cov3Ds,
         "conic_opacity": conic_opacity,
         "point_list": point_list,

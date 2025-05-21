@@ -556,13 +556,16 @@ def wp_render_backward_kernel(
     
     # Get tile range (start/end indices in point_list)
     tile_id = tile_y * int(tile_grid[0]) + tile_x
+
     
     range_start = ranges[tile_id][0]
     range_end = ranges[tile_id][1]
     
+    
     # Get final transparency value and number of contributors from forward pass
     T_final = final_Ts[pix_y, pix_x]
     last_contributor = n_contrib[pix_y, pix_x]
+
     first_kept = max(range_start, range_end - last_contributor)   # = range_end-N
 
     
@@ -584,14 +587,23 @@ def wp_render_backward_kernel(
     # Gradient of pixel coordinate w.r.t. normalized screen-space coordinates
     ddelx_dx = 0.5 * float(W)
     ddely_dy = 0.5 * float(H)
-    
     # Process Gaussians in back-to-front order
     for i in range(range_end - 1, first_kept - 1, -1):
-        gaussian_id = point_list[i]
         
-        if gaussian_id == 0:
-            print(colors[gaussian_id])
-            
+        # if i == 161858:
+        #     print("rrrrrr here")
+        gaussian_id = point_list[i]
+        if i == 161626 and tile_id == 975:
+            print("rrrrrr here")
+            print(gaussian_id)
+        # if tile_id == 975:
+        #     print(range_end - 1)
+        #     print(first_kept)
+        # if gaussian_id == 0:
+        #     # print("tile_id", tile_id)
+        #     # print("range_end", range_end)
+        #     # print("i", i)
+        #     print(colors[gaussian_id])
         # Get Gaussian parameters
         xy = points_xy_image[gaussian_id]
         con_o = conic_opacity[gaussian_id]  # (a, b, c, opacity)
@@ -633,8 +645,6 @@ def wp_render_backward_kernel(
         
         dL_dalpha = wp.dot(color - accum_rec, dL_dpixel)
         
-        if pix_x == 120 and pix_y == 120:
-            print(color)
         wp.atomic_add(dL_dcolors, gaussian_id, dchannel_dcolor * dL_dchannel)
 
         # Handle depth gradients if enabled
@@ -915,7 +925,6 @@ def backward_render(
     # Calculate tile grid dimensions
     tile_grid_x = (width + TILE_M - 1) // TILE_M
     tile_grid_y = (height + TILE_N - 1) // TILE_N
-    
     # Launch the backward rendering kernel
     wp.launch(
         kernel=wp_render_backward_kernel,
