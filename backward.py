@@ -589,22 +589,7 @@ def wp_render_backward_kernel(
     ddely_dy = 0.5 * float(H)
     # Process Gaussians in back-to-front order
     for i in range(range_end - 1, first_kept - 1, -1):
-        
-        # if i == 161858:
-        #     print("rrrrrr here")
         gaussian_id = point_list[i]
-        if i == 161626 and tile_id == 975:
-            print("rrrrrr here")
-            print(gaussian_id)
-        # if tile_id == 975:
-        #     print(range_end - 1)
-        #     print(first_kept)
-        # if gaussian_id == 0:
-        #     # print("tile_id", tile_id)
-        #     # print("range_end", range_end)
-        #     # print("i", i)
-        #     print(colors[gaussian_id])
-        # Get Gaussian parameters
         xy = points_xy_image[gaussian_id]
         con_o = conic_opacity[gaussian_id]  # (a, b, c, opacity)
         color = colors[gaussian_id]
@@ -645,6 +630,9 @@ def wp_render_backward_kernel(
         
         dL_dalpha = wp.dot(color - accum_rec, dL_dpixel)
         
+        if gaussian_id == 0 and tile_id == 975:
+            print(dchannel_dcolor * dL_dchannel)
+            
         wp.atomic_add(dL_dcolors, gaussian_id, dchannel_dcolor * dL_dchannel)
 
         # Handle depth gradients if enabled
