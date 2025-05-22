@@ -498,7 +498,6 @@ class NeRFGaussianSplattingTrainer:
             plt.tight_layout()
             plt.savefig(self.output_path / f"depth_hist_{it:06d}.png", dpi=250)
             plt.close()
-
     
     def train(self):
         """Train the 3D Gaussian Splatting model."""
@@ -565,9 +564,6 @@ class NeRFGaussianSplattingTrainer:
                     rendered_image, target_image, lambda_dssim=0
                 )
                 
-                # 1e-6
-                pixel_grad_buffer = np.ones_like(pixel_grad_buffer) * 1e-6
-                
                 # Prepare camera parameters
                 camera = self.cameras[camera_idx]
                 view_matrix = wp.mat44(camera['world_to_camera'].flatten())
@@ -582,11 +578,6 @@ class NeRFGaussianSplattingTrainer:
                     'rgb': self.intermediate_buffers['colors'],
                     'clamped': self.intermediate_buffers['clamped_state']
                 }
-                # print("radii", geom_buffer['radii'].numpy().flatten()[:100])
-                # print("means2D", geom_buffer['means2D'].numpy().flatten()[:100])
-                # print("conic_opacity", geom_buffer['conic_opacity'].numpy().flatten()[:100])
-                # print("rgb", geom_buffer['rgb'].numpy().flatten()[:100])
-                # print("clamped", geom_buffer['clamped'].numpy().flatten()[:100])
                 
                 binning_buffer = {
                     'point_list': self.intermediate_buffers['point_list']
@@ -597,7 +588,8 @@ class NeRFGaussianSplattingTrainer:
                     'final_Ts': self.intermediate_buffers['final_Ts'],
                     'n_contrib': self.intermediate_buffers['n_contrib']
                 }
-                
+    
+                self.intermediate_buffers['colors'] = np.ones_like(self.intermediate_buffers['colors']) * 0.4980392158
                 gradients = backward(
                     # Core parameters
                     background=np.array(self.config['background_color'], dtype=np.float32),
@@ -639,8 +631,6 @@ class NeRFGaussianSplattingTrainer:
                     degree=self.config['sh_degree'],
                     debug=False
                 )
-                for key, value in gradients.items():
-                    print(key, value.shape, wp.to_torch(value).numpy().flatten()[:100])
                 exit()
                 
                 # 3. Copy gradients from backward result to the optimizer's gradient buffers

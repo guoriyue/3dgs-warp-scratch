@@ -234,7 +234,7 @@ def compute_cov2d_backward_kernel(
     h_x: float, h_y: float,                 # Focal lengths
     tan_fovx: float, tan_fovy: float,
     view_matrix: wp.mat44,                  # World->View matrix (4, 4)
-    dL_dconics: wp.array(dtype=wp.vec3),    # Grad L w.r.t. conic (a, b, c) (N, 3)
+    dL_dconics: wp.array(dtype=wp.vec4),    # Grad L w.r.t. conic (a, b, c) (N, 3)
 
     # --- Outputs (Accumulate/Write) ---
     dL_dmeans: wp.array(dtype=wp.vec3), # Accumulate mean grads here (N, 3)
@@ -250,18 +250,12 @@ def compute_cov2d_backward_kernel(
     cov3D_packed = cov3Ds[idx] # VEC6
     dL_dconic = dL_dconics[idx] # Gradient w.r.t conic
     # 1. Transform means to view space 't'
-    t = wp.transform_point(view_matrix, mean) # Affine transform
+    t = wp.vec4(mean[0], mean[1], mean[2], 1.0) * view_matrix
 
     # 2. View space clamping logic
     limx = 1.3 * tan_fovx
     limy = 1.3 * tan_fovy
     tz = t[2]
-
-    # Need to handle points that are too close to or behind the camera
-    # In a typical setup where camera looks down -z, points in front have tz < 0
-    if wp.abs(tz) <= 0.2:  # Too close to camera plane
-        return # Cannot compute gradient if point is too close to camera
-
     inv_tz = 1.0 / tz
     txtz = t[0] * inv_tz
     tytz = t[1] * inv_tz
@@ -286,11 +280,11 @@ def compute_cov2d_backward_kernel(
     J12 = -h_y * ty * inv_tz2
 
     # Create full Jacobian matrix with zeros where appropriate
-    J = wp.mat33(
+    J = wp.transpose(wp.mat33(
         J00, 0.0, J02,
         0.0, J11, J12,
         0.0, 0.0, 0.0
-    )
+    ))
 
     # 4. View rotation W (upper 3x3 of view_matrix)
     W = wp.mat33(
@@ -305,9 +299,9 @@ def compute_cov2d_backward_kernel(
     c0 = cov3D_packed[0]; c1 = cov3D_packed[1]; c2 = cov3D_packed[2]
     c11 = cov3D_packed[3]; c12 = cov3D_packed[4]; c22 = cov3D_packed[5]
     Vrk = wp.mat33(c0, c1, c2, c1, c11, c12, c2, c12, c22) # Assumes VEC6 stores upper triangle row-wise
-
+    
     # 7. Recompute 2D Covariance cov2D = T^T * Vrk * T
-    cov2D_mat = wp.transpose(T) * Vrk * T
+    cov2D_mat = wp.transpose(T) * wp.transpose(Vrk) * T
 
     # Get 2D covariance entries with blur added
     a_noblr = cov2D_mat[0,0]
@@ -320,7 +314,9 @@ def compute_cov2d_backward_kernel(
     # 8. Denominator for conic inversion gradient
     denom = a * c - b * b
     dL_da = 0.0; dL_db = 0.0; dL_dc = 0.0
-    
+    if idx == 0:
+        print(dL_dconic)
+        print("XXXX")
     # --- Calculate Gradients ---
     if denom != 0.0:
         # Use a small epsilon to prevent division by zero
@@ -338,6 +334,11 @@ def compute_cov2d_backward_kernel(
                          0.5*dL_db, dL_dc, 0.0, 
                          0.0, 0.0, 0.0)
     
+    if idx == 0:
+        print(dL_da)
+        print(dL_db)
+        print(dL_dc)
+        print("AAAA")
     # Compute gradients w.r.t 3D covariance matrix
     # dL_dVrk = T * dL_dCov2D * T^T
     dL_dVrk_mat = T * dL_dCov2D * wp.transpose(T)
@@ -383,9 +384,9 @@ def compute_cov2d_backward_kernel(
     dL_dt = wp.vec3(dL_dtx * x_grad_mul, dL_dty * y_grad_mul, dL_dtz)
 
     # Gradient w.r.t world mean (transform gradient back)
-    dL_dmean_from_cov = wp.transform_vector(view_matrix, dL_dt)
+    dL_dmean_from_cov = wp.vec4(dL_dt[0], dL_dt[1], dL_dt[2], 1.0) * wp.transpose(view_matrix)
     # Accumulate gradient w.r.t means
-    dL_dmeans[idx] += dL_dmean_from_cov
+    dL_dmeans[idx] += wp.vec3(dL_dmean_from_cov[0], dL_dmean_from_cov[1], dL_dmean_from_cov[2])
 
 
 @wp.kernel
@@ -525,7 +526,7 @@ def wp_render_backward_kernel(
     use_invdepth: bool,
     
     # --- Outputs ---
-    dL_dmean2D: wp.array(dtype=wp.vec2),    # Gradient w.r.t. 2D mean positions
+    dL_dmean2D: wp.array(dtype=wp.vec3),    # Gradient w.r.t. 2D mean positions
     dL_dconic2D: wp.array(dtype=wp.vec4),   # Gradient w.r.t. conic matrices
     dL_dopacity: wp.array(dtype=float),     # Gradient w.r.t. opacity
     dL_dcolors: wp.array(dtype=wp.vec3),    # Gradient w.r.t. colors
@@ -557,18 +558,15 @@ def wp_render_backward_kernel(
     # Get tile range (start/end indices in point_list)
     tile_id = tile_y * int(tile_grid[0]) + tile_x
 
-    
     range_start = ranges[tile_id][0]
     range_end = ranges[tile_id][1]
-    
-    
+        
     # Get final transparency value and number of contributors from forward pass
     T_final = final_Ts[pix_y, pix_x]
     last_contributor = n_contrib[pix_y, pix_x]
 
     first_kept = max(range_start, range_end - last_contributor)   # = range_end-N
 
-    
     # Initialize working variables
     T = T_final  # Current accumulated transparency
     accum_rec = wp.vec3(0.0, 0.0, 0.0)  # Accumulated color
@@ -579,10 +577,10 @@ def wp_render_backward_kernel(
     
     # Get gradients
     dL_dpixel = dL_dpixels[pix_y, pix_x]
-    if use_invdepth:
-        dL_invdepth = dL_invdepths[pix_y, pix_x]
-    else:
-        dL_invdepth = 0.0
+    # if use_invdepth:
+    #     dL_invdepth = dL_invdepths[pix_y, pix_x]
+    # else:
+    #     dL_invdepth = 0.0
     
     # Gradient of pixel coordinate w.r.t. normalized screen-space coordinates
     ddelx_dx = 0.5 * float(W)
@@ -623,22 +621,20 @@ def wp_render_backward_kernel(
         dL_dalpha = 0.0
         
         # Update color accumulation and compute color gradients
-        
         accum_rec = last_alpha * last_color + (1.0 - last_alpha) * accum_rec
         dL_dchannel = dL_dpixel
         last_color = color
         
         dL_dalpha = wp.dot(color - accum_rec, dL_dpixel)
-            
         wp.atomic_add(dL_dcolors, gaussian_id, dchannel_dcolor * dL_dchannel)
 
-        # Handle depth gradients if enabled
-        if use_invdepth:
-            invd = 1.0 / depth
-            accum_invdepth_rec = last_alpha * last_invdepth + (1.0 - last_alpha) * accum_invdepth_rec
-            last_invdepth = invd
-            dL_dalpha += (invd - accum_invdepth_rec) * dL_invdepth
-            wp.atomic_add(dL_dinvdepths, gaussian_id, dchannel_dcolor * dL_invdepth)
+        # # Handle depth gradients if enabled
+        # if use_invdepth:
+        #     invd = 1.0 / depth
+        #     accum_invdepth_rec = last_alpha * last_invdepth + (1.0 - last_alpha) * accum_invdepth_rec
+        #     last_invdepth = invd
+        #     dL_dalpha += (invd - accum_invdepth_rec) * dL_invdepth
+        #     wp.atomic_add(dL_dinvdepths, gaussian_id, dchannel_dcolor * dL_invdepth)
         
         # Scale dL_dalpha by T
         dL_dalpha *= T
@@ -656,14 +652,11 @@ def wp_render_backward_kernel(
         dG_ddely = -gdy * con_o[2] - gdx * con_o[1]
 
         # Update gradients w.r.t. 2D mean position
-        wp.atomic_add(dL_dmean2D, gaussian_id, wp.vec2(
+        wp.atomic_add(dL_dmean2D, gaussian_id, wp.vec3(
             dL_dG * dG_ddelx * ddelx_dx,
-            dL_dG * dG_ddely * ddely_dy
+            dL_dG * dG_ddely * ddely_dy,
+            0.0
         ))
-        
-        if gaussian_id == 0 and tile_id == 975:
-            print(alpha)
-            # print(dL_dG * dG_ddely * ddely_dy)
         # Update gradients w.r.t. 2D conic matrix
         wp.atomic_add(dL_dconic2D, gaussian_id, wp.vec4(
             -0.5 * gdx * d_x * dL_dG,
@@ -682,7 +675,7 @@ def compute_projection_backward_kernel(
     means: wp.array(dtype=wp.vec3),      # (N, 3) 3D positions
     radii: wp.array(dtype=int),          # Radii computed in forward (N,) - used for skipping
     proj_matrix: wp.mat44,               # Projection matrix (4, 4)
-    dL_dmean2D: wp.array(dtype=wp.vec2), # Grad of loss w.r.t. 2D projected means (N, 2)
+    dL_dmean2D: wp.array(dtype=wp.vec3), # Grad of loss w.r.t. 2D projected means (N, 2)
     
     # --- Outputs (Accumulate) ---
     dL_dmeans: wp.array(dtype=wp.vec3) # Accumulate mean grads here (N, 3)
@@ -754,8 +747,8 @@ def backward_preprocess(
     clamped: wp.array(dtype=wp.uint32),      # Clamping states
     
     # Incoming gradients from render backward
-    dL_dmean2D: wp.array(dtype=wp.vec2),     # Grad of loss w.r.t. 2D means
-    dL_dconic: wp.array(dtype=wp.vec3),      # Grad of loss w.r.t. 2D conics
+    dL_dmean2D: wp.array(dtype=wp.vec3),     # Grad of loss w.r.t. 2D means
+    dL_dconic: wp.array(dtype=wp.vec4),      # Grad of loss w.r.t. 2D conics
     dL_dopacity: wp.array(dtype=float),      # Grad of loss w.r.t. opacity
     dL_dcolors: wp.array(dtype=wp.vec3),     # Grad of loss w.r.t. colors
     
@@ -795,6 +788,14 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
+    dL_dmeans_np = wp.to_torch(dL_dmeans).numpy()
+    print("dL_dmeans", dL_dmeans_np.flatten()[:100])
+    dL_dconic_np = wp.to_torch(dL_dconic).numpy()
+    print("dL_dconic", dL_dconic_np.flatten()[:100])
+    dL_dcov3D_np = wp.to_torch(dL_dcov3D).numpy()
+    print("dL_dcov3D", dL_dcov3D_np.flatten()[:100])
+    exit()
+    
     # Step 2: Compute gradients for 3D means due to projection
     wp.launch(
         kernel=compute_projection_backward_kernel,
@@ -1090,7 +1091,9 @@ def backward(
         if depth is None:
             depth = geom_buffer.get('depth')  # Get depth from geom buffer if available
     
-    use_invdepth=False if dL_invdepths is None else True
+    use_invdepth = False if dL_invdepths is None else True
+    if use_invdepth:
+        print("WARNING: Using inverse depth gradients is ")
 
     # Convert forward pass outputs to warp arrays if they're not already
     radii_warp = to_warp_array(radii, int) if radii is not None else None
@@ -1102,7 +1105,7 @@ def backward(
     dL_invdepths_warp = to_warp_array(dL_invdepths, float) if dL_invdepths is not None else None
     
     # --- Initialize output gradient arrays ---
-    dL_dmean2D = wp.zeros(num_points, dtype=wp.vec2, device=DEVICE)
+    dL_dmean2D = wp.zeros(num_points, dtype=wp.vec3, device=DEVICE)
     dL_dconic = wp.zeros(num_points, dtype=wp.vec4, device=DEVICE)
     dL_dopacity = wp.zeros(num_points, dtype=float, device=DEVICE)
     dL_dcolor = wp.zeros(num_points, dtype=wp.vec3, device=DEVICE)
@@ -1147,13 +1150,9 @@ def backward(
         dL_dcolors=dL_dcolor,
         dL_dinvdepths=dL_dinvdepths  # Pass depth gradient output
     )
-    
-    print("dL_dinvdepths", wp.to_torch(dL_dinvdepths).numpy().flatten()[:100])
-    print("dL_dmean2D", wp.to_torch(dL_dmean2D).numpy().flatten()[:100])
-    print("dL_dconic", wp.to_torch(dL_dconic).numpy().flatten()[:100])
-    print("dL_dopacity", wp.to_torch(dL_dopacity).numpy().flatten()[:100])
-    print("dL_dcolor", wp.to_torch(dL_dcolor).numpy().flatten()[:100])
-
+    dL_dconic_np = wp.array(dL_dconic)
+    print(dL_dconic_np)
+    print("AAAA")
     exit()
     # --- Step 2: Compute gradients for 3D parameters ---
     backward_preprocess(
