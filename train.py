@@ -604,7 +604,6 @@ class NeRFGaussianSplattingTrainer:
                     means3D=self.params['positions'],
                     dL_dpixels=pixel_grad_buffer,
                     # dL_invdepths=depth_grad_buffer,  # Pass depth gradients
-                    # use_invdepth=True,
                     
                     # Model parameters (pass directly from self.params)
                     opacity=self.params['opacities'],
@@ -654,8 +653,6 @@ class NeRFGaussianSplattingTrainer:
                 # Update parameters
                 self.optimizer_step(iteration)
      
-      
-                exit()
                 # Update progress bar
                 pbar.update(1)
                 pbar.set_description(f"Loss: {loss:.6f}")

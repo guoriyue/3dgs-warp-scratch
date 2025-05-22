@@ -526,7 +526,7 @@ def wp_render_backward_kernel(
     
     # --- Outputs ---
     dL_dmean2D: wp.array(dtype=wp.vec2),    # Gradient w.r.t. 2D mean positions
-    dL_dconic2D: wp.array(dtype=wp.vec3),   # Gradient w.r.t. conic matrices (a, b, c)
+    dL_dconic2D: wp.array(dtype=wp.vec4),   # Gradient w.r.t. conic matrices
     dL_dopacity: wp.array(dtype=float),     # Gradient w.r.t. opacity
     dL_dcolors: wp.array(dtype=wp.vec3),    # Gradient w.r.t. colors
     dL_dinvdepths: wp.array(dtype=float)    # Gradient w.r.t. inverse depths
@@ -629,9 +629,6 @@ def wp_render_backward_kernel(
         last_color = color
         
         dL_dalpha = wp.dot(color - accum_rec, dL_dpixel)
-        
-        if gaussian_id == 0 and tile_id == 975:
-            print(dchannel_dcolor * dL_dchannel)
             
         wp.atomic_add(dL_dcolors, gaussian_id, dchannel_dcolor * dL_dchannel)
 
@@ -664,10 +661,14 @@ def wp_render_backward_kernel(
             dL_dG * dG_ddely * ddely_dy
         ))
         
+        if gaussian_id == 0 and tile_id == 975:
+            print(alpha)
+            # print(dL_dG * dG_ddely * ddely_dy)
         # Update gradients w.r.t. 2D conic matrix
-        wp.atomic_add(dL_dconic2D, gaussian_id, wp.vec3(
+        wp.atomic_add(dL_dconic2D, gaussian_id, wp.vec4(
             -0.5 * gdx * d_x * dL_dG,
             -0.5 * gdx * d_y * dL_dG,
+            0.0,
             -0.5 * gdy * d_y * dL_dG
         ))
         
@@ -969,7 +970,6 @@ def backward(
     depth=None,  # Added depth parameter
     cov3Ds=None,
     dL_invdepths=None,
-    use_invdepth=False,
     # --- Internal state buffers ---
     geom_buffer=None,
     binning_buffer=None,
@@ -1090,6 +1090,8 @@ def backward(
         if depth is None:
             depth = geom_buffer.get('depth')  # Get depth from geom buffer if available
     
+    use_invdepth=False if dL_invdepths is None else True
+
     # Convert forward pass outputs to warp arrays if they're not already
     radii_warp = to_warp_array(radii, int) if radii is not None else None
     means2D_warp = to_warp_array(means2D, wp.vec2) if means2D is not None else None
@@ -1101,7 +1103,7 @@ def backward(
     
     # --- Initialize output gradient arrays ---
     dL_dmean2D = wp.zeros(num_points, dtype=wp.vec2, device=DEVICE)
-    dL_dconic = wp.zeros(num_points, dtype=wp.vec3, device=DEVICE)
+    dL_dconic = wp.zeros(num_points, dtype=wp.vec4, device=DEVICE)
     dL_dopacity = wp.zeros(num_points, dtype=float, device=DEVICE)
     dL_dcolor = wp.zeros(num_points, dtype=wp.vec3, device=DEVICE)
     dL_dinvdepths = wp.zeros(num_points, dtype=float, device=DEVICE)  # Initialize depth gradient output
@@ -1151,8 +1153,8 @@ def backward(
     print("dL_dconic", wp.to_torch(dL_dconic).numpy().flatten()[:100])
     print("dL_dopacity", wp.to_torch(dL_dopacity).numpy().flatten()[:100])
     print("dL_dcolor", wp.to_torch(dL_dcolor).numpy().flatten()[:100])
+
     exit()
-    
     # --- Step 2: Compute gradients for 3D parameters ---
     backward_preprocess(
         num_points=num_points,
