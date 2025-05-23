@@ -586,7 +586,7 @@ def wp_render_backward_kernel(
     ddelx_dx = 0.5 * float(W)
     ddely_dy = 0.5 * float(H)
     # Process Gaussians in back-to-front order
-    for i in range(range_end - 1, first_kept - 1, -1):
+    for i in range(range_end - 1, first_kept  - 1, -1):
         gaussian_id = point_list[i]
         xy = points_xy_image[gaussian_id]
         con_o = conic_opacity[gaussian_id]  # (a, b, c, opacity)
@@ -657,6 +657,10 @@ def wp_render_backward_kernel(
             dL_dG * dG_ddely * ddely_dy,
             0.0
         ))
+        
+        if gaussian_id == 0 and tile_id == 975:
+            print(last_contributor)
+            
         # Update gradients w.r.t. 2D conic matrix
         wp.atomic_add(dL_dconic2D, gaussian_id, wp.vec4(
             -0.5 * gdx * d_x * dL_dG,
