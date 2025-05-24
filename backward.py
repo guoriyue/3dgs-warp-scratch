@@ -247,7 +247,15 @@ def compute_cov2d_backward_kernel(
     
     mean = means[idx]
     cov3D_packed = cov3Ds[idx] # VEC6
+    
     dL_dconic = wp.vec3(dL_dconics[idx][0], dL_dconics[idx][1], dL_dconics[idx][3])
+    
+    if idx == 0:
+        # dL_dconic = wp.vec3(0.0, 0.0, 0.0, 0.0)
+        dL_dconic = wp.vec3(-0.317618, -0.0099874455, -0.2904277742)
+        print(dL_dconic)
+        print("XXXX")
+        
     t = wp.vec4(mean[0], mean[1], mean[2], 1.0) * view_matrix
 
     limx = 1.3 * tan_fovx
@@ -277,6 +285,8 @@ def compute_cov2d_backward_kernel(
         0.0, J11, J12,
         0.0, 0.0, 0.0
     ))
+    
+    
 
     W = wp.mat33(
         view_matrix[0,0], view_matrix[0,1], view_matrix[0,2],
@@ -655,7 +665,7 @@ def compute_projection_backward_kernel(
     
     # Compute homogeneous coordinates
     m_hom = wp.vec4(mean3D[0], mean3D[1], mean3D[2], 1.0)
-    m_hom = proj_matrix * m_hom
+    m_hom = m_hom * proj_matrix
     
     # Division by w (perspective division)
     m_w = 1.0 / (m_hom[3] + 0.0000001)
@@ -682,6 +692,7 @@ def compute_projection_backward_kernel(
     dL_dmean[2] = (proj_matrix[2, 0] * m_w - proj_matrix[2, 3] * mul1) * dL_dmean2D_val[0] + \
                  (proj_matrix[2, 1] * m_w - proj_matrix[2, 3] * mul2) * dL_dmean2D_val[1]
     
+
     dL_dmeans[idx] += dL_dmean
 
 def backward_preprocess(
@@ -749,14 +760,7 @@ def backward_preprocess(
         device=DEVICE
     )
     
-    dL_dmeans_np = wp.to_torch(dL_dmeans).numpy()
-    print("dL_dmeans", dL_dmeans_np.flatten()[:100])
-    dL_dconic_np = wp.to_torch(dL_dconic).numpy()
-    print("dL_dconic", dL_dconic_np.flatten()[:100])
-    dL_dcov3D_np = wp.to_torch(dL_dcov3D).numpy()
-    print("dL_dcov3D", dL_dcov3D_np.flatten()[:100])
-    exit()
-    
+    dL_dmeans_np = dL_dmeans.numpy()
     # Step 2: Compute gradients for 3D means due to projection
     wp.launch(
         kernel=compute_projection_backward_kernel,
@@ -771,8 +775,6 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
-    
-
     
     # Step 3: Compute gradients for SH coefficients
     wp.launch(
@@ -793,6 +795,7 @@ def backward_preprocess(
         
         device=DEVICE
     )
+    dL_dmeans_np = dL_dmeans.numpy()
     # Step 4: Compute gradients for scales and rotations
     wp.launch(
         kernel=compute_cov3d_backward_kernel,
@@ -809,27 +812,7 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
-    
-    # Check if gradients are all zeros
-    dL_dmeans_torch = wp.to_torch(dL_dmeans)
-    dL_dsh_torch = wp.to_torch(dL_dsh)
-    dL_dscales_torch = wp.to_torch(dL_dscales)
-    dL_drots_torch = wp.to_torch(dL_drots)
-    
-    # Print gradient statistics
-    print("\n--- Gradient Statistics after backward_preprocess ---")
-    print(f"dL_dmeans: all zeros = {torch.all(torch.abs(dL_dmeans_torch) < 1e-6).item()}, max = {torch.max(torch.abs(dL_dmeans_torch)).item()}, non-zero count = {torch.sum(torch.abs(dL_dmeans_torch) >= 1e-6).item()}")
-    print(f"dL_dsh: all zeros = {torch.all(torch.abs(dL_dsh_torch) < 1e-6).item()}, max = {torch.max(torch.abs(dL_dsh_torch)).item()}, non-zero count = {torch.sum(torch.abs(dL_dsh_torch) >= 1e-6).item()}")
-    print(f"dL_dscales: all zeros = {torch.all(torch.abs(dL_dscales_torch) < 1e-6).item()}, max = {torch.max(torch.abs(dL_dscales_torch)).item()}, non-zero count = {torch.sum(torch.abs(dL_dscales_torch) >= 1e-6).item()}")
-    print(f"dL_drots: all zeros = {torch.all(torch.abs(dL_drots_torch) < 1e-6).item()}, max = {torch.max(torch.abs(dL_drots_torch)).item()}, non-zero count = {torch.sum(torch.abs(dL_drots_torch) >= 1e-6).item()}")
-    
-    # If there are any non-zero gradients, print some examples
-    if not torch.all(torch.abs(dL_dmeans_torch) < 1e-6).item():
-        non_zero_indices = torch.nonzero(torch.abs(dL_dmeans_torch).sum(dim=1) >= 1e-6).squeeze().cpu().numpy()
-        print(f"\nSample non-zero dL_dmeans (indices {non_zero_indices[:5] if len(non_zero_indices) > 5 else non_zero_indices}):")
-        for idx in non_zero_indices[:5] if len(non_zero_indices) > 5 else non_zero_indices:
-            print(f"  {idx}: {dL_dmeans_torch[idx].cpu().numpy()}")
-    
+
     return dL_dmeans, dL_dsh, dL_dscales, dL_drots
 
 def backward_render(

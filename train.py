@@ -507,8 +507,7 @@ class NeRFGaussianSplattingTrainer:
         with tqdm(total=num_iterations) as pbar:
             for iteration in range(num_iterations):
                 # Select a random camera and corresponding image
-                # camera_idx = np.random.randint(0, len(self.cameras))
-                camera_idx = 42
+                camera_idx = np.random.randint(0, len(self.cameras))
                 image_path = self.image_paths[camera_idx]
                 target_image = self.load_image(image_path)
                 
@@ -631,7 +630,6 @@ class NeRFGaussianSplattingTrainer:
                     degree=self.config['sh_degree'],
                     debug=False
                 )
-                exit()
                 
                 # 3. Copy gradients from backward result to the optimizer's gradient buffers
                 wp.copy(self.grads['positions'], gradients['dL_dmean3D'])
