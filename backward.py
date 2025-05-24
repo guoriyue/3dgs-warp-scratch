@@ -748,6 +748,7 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
+    
     dL_dmeans_np = wp.to_torch(dL_dmeans).numpy()
     print("dL_dmeans", dL_dmeans_np.flatten()[:100])
     dL_dconic_np = wp.to_torch(dL_dconic).numpy()
@@ -770,6 +771,9 @@ def backward_preprocess(
         ],
         device=DEVICE
     )
+    
+
+    
     # Step 3: Compute gradients for SH coefficients
     wp.launch(
         kernel=sh_backward_kernel,
