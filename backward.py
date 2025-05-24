@@ -1,4 +1,3 @@
-
 import warp as wp
 import math
 from utils.wp_utils import to_warp_array, wp_vec3_mul_element, wp_vec3_add_element, wp_vec3_sqrt, wp_vec3_div_element
@@ -245,14 +244,12 @@ def compute_cov2d_backward_kernel(
         # Zero out dL_dcov3Ds to ensure we don't keep old values
         dL_dcov3Ds[idx] = VEC6(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         return
-    # --- Recompute intermediates from forward pass ---
+    
     mean = means[idx]
     cov3D_packed = cov3Ds[idx] # VEC6
-    dL_dconic = dL_dconics[idx] # Gradient w.r.t conic
-    # 1. Transform means to view space 't'
+    dL_dconic = wp.vec3(dL_dconics[idx][0], dL_dconics[idx][1], dL_dconics[idx][3])
     t = wp.vec4(mean[0], mean[1], mean[2], 1.0) * view_matrix
 
-    # 2. View space clamping logic
     limx = 1.3 * tan_fovx
     limy = 1.3 * tan_fovy
     tz = t[2]
@@ -265,45 +262,35 @@ def compute_cov2d_backward_kernel(
     x_grad_mul = 1.0 - float(x_clamped_flag) # 1.0 if not clamped, 0.0 if clamped
     y_grad_mul = 1.0 - float(y_clamped_flag)
 
-    # Use clamped position for Jacobian calculation
     tx = wp.min(limx, wp.max(-limx, txtz)) * tz
     ty = wp.min(limy, wp.max(-limy, tytz)) * tz
-    # tz is unchanged
-
     inv_tz2 = inv_tz * inv_tz
     inv_tz3 = inv_tz2 * inv_tz
 
-    # 3. Jacobian J (only non-zero elements, matching CUDA implementation)
     J00 = h_x * inv_tz
     J11 = h_y * inv_tz
     J02 = -h_x * tx * inv_tz2
     J12 = -h_y * ty * inv_tz2
 
-    # Create full Jacobian matrix with zeros where appropriate
     J = wp.transpose(wp.mat33(
         J00, 0.0, J02,
         0.0, J11, J12,
         0.0, 0.0, 0.0
     ))
 
-    # 4. View rotation W (upper 3x3 of view_matrix)
     W = wp.mat33(
         view_matrix[0,0], view_matrix[0,1], view_matrix[0,2],
         view_matrix[1,0], view_matrix[1,1], view_matrix[1,2],
         view_matrix[2,0], view_matrix[2,1], view_matrix[2,2]
     )
 
-    # 5. Transformation T = W * J (matches CUDA implementation)
     T = W * J
-    # 6. Vrk (3D covariance matrix from packed)
     c0 = cov3D_packed[0]; c1 = cov3D_packed[1]; c2 = cov3D_packed[2]
     c11 = cov3D_packed[3]; c12 = cov3D_packed[4]; c22 = cov3D_packed[5]
     Vrk = wp.mat33(c0, c1, c2, c1, c11, c12, c2, c12, c22) # Assumes VEC6 stores upper triangle row-wise
     
-    # 7. Recompute 2D Covariance cov2D = T^T * Vrk * T
     cov2D_mat = wp.transpose(T) * wp.transpose(Vrk) * T
 
-    # Get 2D covariance entries with blur added
     a_noblr = cov2D_mat[0,0]
     b_noblr = cov2D_mat[0,1] 
     c_noblr = cov2D_mat[1,1]
@@ -311,81 +298,53 @@ def compute_cov2d_backward_kernel(
     b = b_noblr
     c = c_noblr + 0.3
 
-    # 8. Denominator for conic inversion gradient
     denom = a * c - b * b
     dL_da = 0.0; dL_db = 0.0; dL_dc = 0.0
-    if idx == 0:
-        print(dL_dconic)
-        print("XXXX")
+        
     # --- Calculate Gradients ---
     if denom != 0.0:
         # Use a small epsilon to prevent division by zero
         denom2inv = 1.0 / (denom * denom + 1e-7)
-        
-        # Calculate gradients using the correct chain rule from CUDA implementation
-        # dL_da, dL_db, dL_dc are gradients of loss w.r.t. entries of 2D covariance matrix,
-        # given gradients of loss w.r.t. conic matrix (inverse covariance)
         dL_da = denom2inv * (-c * c * dL_dconic[0] + 2.0 * b * c * dL_dconic[1] + (denom - a * c) * dL_dconic[2])
         dL_dc = denom2inv * (-a * a * dL_dconic[2] + 2.0 * a * b * dL_dconic[1] + (denom - a * c) * dL_dconic[0])
         dL_db = denom2inv * 2.0 * (b * c * dL_dconic[0] - (denom + 2.0 * b * b) * dL_dconic[1] + a * b * dL_dconic[2])
 
-    # Create gradient matrix for 2D covariance
-    dL_dCov2D = wp.mat33(dL_da, 0.5*dL_db, 0.0, 
-                         0.5*dL_db, dL_dc, 0.0, 
-                         0.0, 0.0, 0.0)
-    
-    if idx == 0:
-        print(dL_da)
-        print(dL_db)
-        print(dL_dc)
-        print("AAAA")
-    # Compute gradients w.r.t 3D covariance matrix
-    # dL_dVrk = T * dL_dCov2D * T^T
-    dL_dVrk_mat = T * dL_dCov2D * wp.transpose(T)
-    
-    # Extract packed gradients (factor of 2 for off-diagonals due to symmetry)
-    dL_dc00 = dL_dVrk_mat[0,0]
-    dL_dc11 = dL_dVrk_mat[1,1]
-    dL_dc22 = dL_dVrk_mat[2,2]
-    dL_dc01 = 2.0 * dL_dVrk_mat[0,1]
-    dL_dc02 = 2.0 * dL_dVrk_mat[0,2]
-    dL_dc12 = 2.0 * dL_dVrk_mat[1,2]
-    dL_dcov3Ds[idx] = VEC6(dL_dc00, dL_dc01, dL_dc02, dL_dc11, dL_dc12, dL_dc22)
+    dL_dcov3Ds[idx] = VEC6(
+        # Diagonal elements
+        T[0][0] * T[0][0] * dL_da + T[0][0] * T[0][1] * dL_db + T[0][1] * T[0][1] * dL_dc,  # c00
+        2.0 * T[0][0] * T[1][0] * dL_da + (T[0][0] * T[1][1] + T[1][0] * T[0][1]) * dL_db + 2.0 * T[0][1] * T[1][1] * dL_dc,  # c01
+        2.0 * T[0][0] * T[2][0] * dL_da + (T[0][0] * T[2][1] + T[2][0] * T[0][1]) * dL_db + 2.0 * T[0][1] * T[2][1] * dL_dc,  # c02
+        T[1][0] * T[1][0] * dL_da + T[1][0] * T[1][1] * dL_db + T[1][1] * T[1][1] * dL_dc,  # c11
+        2.0 * T[2][0] * T[1][0] * dL_da + (T[1][0] * T[2][1] + T[2][0] * T[1][1]) * dL_db + 2.0 * T[1][1] * T[2][1] * dL_dc,  # c12
+        T[2][0] * T[2][0] * dL_da + T[2][0] * T[2][1] * dL_db + T[2][1] * T[2][1] * dL_dc   # c22
+    )
 
-    # Gradients of loss w.r.t. T (transformation matrix)
-    # Using the formula from CUDA implementation
-    dL_dT00 = 2.0 * (T[0,0] * Vrk[0,0] + T[0,1] * Vrk[0,1] + T[0,2] * Vrk[0,2]) * dL_da + \
-              (T[1,0] * Vrk[0,0] + T[1,1] * Vrk[0,1] + T[1,2] * Vrk[0,2]) * dL_db
-    dL_dT01 = 2.0 * (T[0,0] * Vrk[1,0] + T[0,1] * Vrk[1,1] + T[0,2] * Vrk[1,2]) * dL_da + \
-              (T[1,0] * Vrk[1,0] + T[1,1] * Vrk[1,1] + T[1,2] * Vrk[1,2]) * dL_db
-    dL_dT02 = 2.0 * (T[0,0] * Vrk[2,0] + T[0,1] * Vrk[2,1] + T[0,2] * Vrk[2,2]) * dL_da + \
-              (T[1,0] * Vrk[2,0] + T[1,1] * Vrk[2,1] + T[1,2] * Vrk[2,2]) * dL_db
-    dL_dT10 = 2.0 * (T[1,0] * Vrk[0,0] + T[1,1] * Vrk[0,1] + T[1,2] * Vrk[0,2]) * dL_dc + \
-              (T[0,0] * Vrk[0,0] + T[0,1] * Vrk[0,1] + T[0,2] * Vrk[0,2]) * dL_db
-    dL_dT11 = 2.0 * (T[1,0] * Vrk[1,0] + T[1,1] * Vrk[1,1] + T[1,2] * Vrk[1,2]) * dL_dc + \
-              (T[0,0] * Vrk[1,0] + T[0,1] * Vrk[1,1] + T[0,2] * Vrk[1,2]) * dL_db
-    dL_dT12 = 2.0 * (T[1,0] * Vrk[2,0] + T[1,1] * Vrk[2,1] + T[1,2] * Vrk[2,2]) * dL_dc + \
-              (T[0,0] * Vrk[2,0] + T[0,1] * Vrk[2,1] + T[0,2] * Vrk[2,2]) * dL_db
-              
-    # Gradients of loss w.r.t. Jacobian elements (J)
-    # T = W * J, so dL_dJ = W^T * dL_dT
+    dL_dT00 = 2.0 * (T[0][0] * Vrk[0][0] + T[1][0] * Vrk[1][0] + T[2][0] * Vrk[2][0]) * dL_da + \
+              (T[0][1] * Vrk[0][0] + T[1][1] * Vrk[1][0] + T[2][1] * Vrk[2][0]) * dL_db
+    dL_dT01 = 2.0 * (T[0][0] * Vrk[0][1] + T[1][0] * Vrk[1][1] + T[2][0] * Vrk[2][1]) * dL_da + \
+              (T[0][1] * Vrk[0][1] + T[1][1] * Vrk[1][1] + T[2][1] * Vrk[2][1]) * dL_db
+    dL_dT02 = 2.0 * (T[0][0] * Vrk[0][2] + T[1][0] * Vrk[1][2] + T[2][0] * Vrk[2][2]) * dL_da + \
+              (T[0][1] * Vrk[0][2] + T[1][1] * Vrk[1][2] + T[2][1] * Vrk[2][2]) * dL_db
+    dL_dT10 = 2.0 * (T[0][1] * Vrk[0][0] + T[1][1] * Vrk[1][0] + T[2][1] * Vrk[2][0]) * dL_dc + \
+              (T[0][0] * Vrk[0][0] + T[1][0] * Vrk[1][0] + T[2][0] * Vrk[2][0]) * dL_db
+    dL_dT11 = 2.0 * (T[0][1] * Vrk[0][1] + T[1][1] * Vrk[1][1] + T[2][1] * Vrk[2][1]) * dL_dc + \
+              (T[0][0] * Vrk[0][1] + T[1][0] * Vrk[1][1] + T[2][0] * Vrk[2][1]) * dL_db
+    dL_dT12 = 2.0 * (T[0][1] * Vrk[0][2] + T[1][1] * Vrk[1][2] + T[2][1] * Vrk[2][2]) * dL_dc + \
+              (T[0][0] * Vrk[0][2] + T[1][0] * Vrk[1][2] + T[2][0] * Vrk[2][2]) * dL_db
+
     dL_dJ00 = W[0,0] * dL_dT00 + W[1,0] * dL_dT01 + W[2,0] * dL_dT02
     dL_dJ02 = W[0,2] * dL_dT00 + W[1,2] * dL_dT01 + W[2,2] * dL_dT02
     dL_dJ11 = W[0,1] * dL_dT10 + W[1,1] * dL_dT11 + W[2,1] * dL_dT12
     dL_dJ12 = W[0,2] * dL_dT10 + W[1,2] * dL_dT11 + W[2,2] * dL_dT12
-    
-    # Gradients w.r.t. view-space coordinates (t)
+
     dL_dtx = -h_x * inv_tz2 * dL_dJ02
     dL_dty = -h_y * inv_tz2 * dL_dJ12
     dL_dtz = -h_x * inv_tz2 * dL_dJ00 - h_y * inv_tz2 * dL_dJ11 + \
              2.0 * h_x * tx * inv_tz3 * dL_dJ02 + 2.0 * h_y * ty * inv_tz3 * dL_dJ12
 
-    # Apply clamping mask
     dL_dt = wp.vec3(dL_dtx * x_grad_mul, dL_dty * y_grad_mul, dL_dtz)
 
-    # Gradient w.r.t world mean (transform gradient back)
     dL_dmean_from_cov = wp.vec4(dL_dt[0], dL_dt[1], dL_dt[2], 1.0) * wp.transpose(view_matrix)
-    # Accumulate gradient w.r.t means
     dL_dmeans[idx] += wp.vec3(dL_dmean_from_cov[0], dL_dmean_from_cov[1], dL_dmean_from_cov[2])
 
 
@@ -657,9 +616,6 @@ def wp_render_backward_kernel(
             dL_dG * dG_ddely * ddely_dy,
             0.0
         ))
-        
-        if gaussian_id == 0 and tile_id == 975:
-            print(last_contributor)
             
         # Update gradients w.r.t. 2D conic matrix
         wp.atomic_add(dL_dconic2D, gaussian_id, wp.vec4(
@@ -1154,10 +1110,6 @@ def backward(
         dL_dcolors=dL_dcolor,
         dL_dinvdepths=dL_dinvdepths  # Pass depth gradient output
     )
-    dL_dconic_np = wp.array(dL_dconic)
-    print(dL_dconic_np)
-    print("AAAA")
-    exit()
     # --- Step 2: Compute gradients for 3D parameters ---
     backward_preprocess(
         num_points=num_points,
