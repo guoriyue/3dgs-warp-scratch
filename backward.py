@@ -249,12 +249,7 @@ def compute_cov2d_backward_kernel(
     cov3D_packed = cov3Ds[idx] # VEC6
     
     dL_dconic = wp.vec3(dL_dconics[idx][0], dL_dconics[idx][1], dL_dconics[idx][3])
-    
-    if idx == 0:
-        # dL_dconic = wp.vec3(0.0, 0.0, 0.0, 0.0)
-        dL_dconic = wp.vec3(-0.317618, -0.0099874455, -0.2904277742)
-        print(dL_dconic)
-        print("XXXX")
+
         
     t = wp.vec4(mean[0], mean[1], mean[2], 1.0) * view_matrix
 

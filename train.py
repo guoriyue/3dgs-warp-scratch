@@ -588,7 +588,6 @@ class NeRFGaussianSplattingTrainer:
                     'n_contrib': self.intermediate_buffers['n_contrib']
                 }
     
-                self.intermediate_buffers['colors'] = np.ones_like(self.intermediate_buffers['colors']) * 0.4980392158
                 gradients = backward(
                     # Core parameters
                     background=np.array(self.config['background_color'], dtype=np.float32),
