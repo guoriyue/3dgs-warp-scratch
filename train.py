@@ -144,12 +144,12 @@ class NeRFGaussianSplattingTrainer:
             inputs=[positions, scales, rotations, opacities, shs, self.num_points, self.config['initial_scale']]
         )
         
-        np.random.seed(42)
-        xyz = np.random.random((self.num_points, 3)) * 2.6 - 1.3
-        positions = wp.array(xyz, dtype=wp.vec3)
+        # np.random.seed(42)
+        # xyz = np.random.random((self.num_points, 3)) * 2.6 - 1.3
+        # positions = wp.array(xyz, dtype=wp.vec3)
         
-        scales = np.load("/Users/guomingfei/Desktop/warp-nerf-scratch/scales.npz")["scales"]
-        scales = wp.array(scales, dtype=wp.vec3)
+        # scales = np.load("/Users/guomingfei/Desktop/warp-nerf-scratch/scales.npz")["scales"]
+        # scales = wp.array(scales, dtype=wp.vec3)
         
         
         # Return parameters as dictionary
@@ -540,7 +540,7 @@ class NeRFGaussianSplattingTrainer:
                 np_rendered_image = wp.to_torch(rendered_image).cpu().numpy()
                 np_rendered_image = np_rendered_image.transpose(2, 0, 1)
 
-                if iteration % 50 == 0:
+                if iteration % self.config['save_interval'] == 0:
                     self.debug_log_and_save_images(np_rendered_image, target_image, depth_image, camera_idx, iteration)
 
                 # Calculate L1 loss

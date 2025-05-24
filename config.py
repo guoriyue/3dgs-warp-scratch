@@ -39,7 +39,7 @@ class GaussianParams:
     # Optimization parameters
     densification_interval = 2000  # Perform densification every N iterations
     pruning_interval = 2000  # Perform pruning every N iterations
-    save_interval = 300  # Save checkpoint every N iterations
+    save_interval = 10  # Save checkpoint every N iterations
     adam_beta1 = 0.9  # Adam optimizer beta1 parameter
     adam_beta2 = 0.999  # Adam optimizer beta2 parameter
     adam_epsilon = 1e-8  # Adam optimizer epsilon parameter
