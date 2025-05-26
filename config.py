@@ -34,7 +34,7 @@ class GaussianParams:
     lr_rot = 5e-3
     lr_sh = 2e-3
     lr_opac = 5e-3
-    num_points = 100000  # Initial number of Gaussian points
+    num_points = 1000 # Initial number of Gaussian points
 
     # Optimization parameters
     densification_interval = 2000  # Perform densification every N iterations

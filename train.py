@@ -144,13 +144,12 @@ class NeRFGaussianSplattingTrainer:
             inputs=[positions, scales, rotations, opacities, shs, self.num_points, self.config['initial_scale']]
         )
         
-        # np.random.seed(42)
-        # xyz = np.random.random((self.num_points, 3)) * 2.6 - 1.3
-        # positions = wp.array(xyz, dtype=wp.vec3)
+        np.random.seed(42)
+        xyz = np.random.random((self.num_points, 3)) * 2.6 - 1.3
+        positions = wp.array(xyz, dtype=wp.vec3)
         
-        # scales = np.load("/Users/guomingfei/Desktop/warp-nerf-scratch/scales.npz")["scales"]
-        # scales = wp.array(scales, dtype=wp.vec3)
-        
+        scales = np.load("/Users/guomingfei/Desktop/warp-nerf-scratch/scales.npz")["scales"]
+        scales = wp.array(scales, dtype=wp.vec3)
         
         # Return parameters as dictionary
         return {
@@ -507,7 +506,8 @@ class NeRFGaussianSplattingTrainer:
         with tqdm(total=num_iterations) as pbar:
             for iteration in range(num_iterations):
                 # Select a random camera and corresponding image
-                camera_idx = np.random.randint(0, len(self.cameras))
+                # camera_idx = np.random.randint(0, len(self.cameras))
+                camera_idx = 42
                 image_path = self.image_paths[camera_idx]
                 target_image = self.load_image(image_path)
                 
@@ -587,7 +587,7 @@ class NeRFGaussianSplattingTrainer:
                     'final_Ts': self.intermediate_buffers['final_Ts'],
                     'n_contrib': self.intermediate_buffers['n_contrib']
                 }
-    
+                
                 gradients = backward(
                     # Core parameters
                     background=np.array(self.config['background_color'], dtype=np.float32),
@@ -650,6 +650,7 @@ class NeRFGaussianSplattingTrainer:
                 if iteration % self.config['save_interval'] == 0 or iteration == num_iterations - 1:
                     self.save_checkpoint(iteration)
 
+                
         print("Training complete!")
 
 

@@ -675,7 +675,6 @@ def render_gaussians(
             antialiasing               # antialiasing
         ],
     )
-    
     point_offsets = wp.zeros(num_points, dtype=int, device=DEVICE)
     wp.launch(
         kernel=wp_prefix_sum,
@@ -741,7 +740,7 @@ def render_gaussians(
     
     tile_count = int(tile_grid[0] * tile_grid[1])
     ranges = wp.zeros(tile_count, dtype=wp.vec2i, device=DEVICE)  # each is (start, end)
-    
+
     if num_rendered > 0:
         wp.launch(
             kernel=wp_identify_tile_ranges,  # You also need this kernel
@@ -752,9 +751,6 @@ def render_gaussians(
                 ranges
             ]
         )
-        np_ranges = wp.to_torch(ranges).cpu().numpy()
-        
-        num_tiles = tile_count
         
         wp.launch(
             kernel=wp_render_gaussians,

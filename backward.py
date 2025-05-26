@@ -520,7 +520,7 @@ def wp_render_backward_kernel(
     pixf_y = float(pix_y)
     
     # Get tile range (start/end indices in point_list)
-    tile_id = tile_y * int(tile_grid[0]) + tile_x
+    tile_id = tile_y * int(tile_grid[1]) + tile_x
 
     range_start = ranges[tile_id][0]
     range_end = ranges[tile_id][1]
@@ -529,7 +529,8 @@ def wp_render_backward_kernel(
     T_final = final_Ts[pix_y, pix_x]
     last_contributor = n_contrib[pix_y, pix_x]
 
-    first_kept = max(range_start, range_end - last_contributor)   # = range_end-N
+    # first_kept = max(range_start, range_end - last_contributor)   # = range_end-N
+    last_kept = min(range_end, range_start + last_contributor)
 
     # Initialize working variables
     T = T_final  # Current accumulated transparency
@@ -549,8 +550,10 @@ def wp_render_backward_kernel(
     # Gradient of pixel coordinate w.r.t. normalized screen-space coordinates
     ddelx_dx = 0.5 * float(W)
     ddely_dy = 0.5 * float(H)
+    # print(range_end - 1, first_kept - 1)
     # Process Gaussians in back-to-front order
-    for i in range(range_end - 1, first_kept  - 1, -1):
+    # for i in range(range_end - 1, first_kept - 1, -1):
+    for i in range(last_kept - 1, range_start - 1, -1):
         gaussian_id = point_list[i]
         xy = points_xy_image[gaussian_id]
         con_o = conic_opacity[gaussian_id]  # (a, b, c, opacity)
@@ -614,6 +617,13 @@ def wp_render_backward_kernel(
         gdy = G * d_y
         dG_ddelx = -gdx * con_o[0] - gdy * con_o[1]
         dG_ddely = -gdy * con_o[2] - gdx * con_o[1]
+        
+        # if gaussian_id == 0:
+        #     # 57 and tile_id == 101
+        #     # print(dL_dG * dG_ddelx * ddelx_dx)
+        #     print(tile_id)
+        #     print(range_end - range_start)
+        #     print(last_contributor)
 
         # Update gradients w.r.t. 2D mean position
         wp.atomic_add(dL_dmean2D, gaussian_id, wp.vec3(
@@ -857,6 +867,7 @@ def backward_render(
     # Calculate tile grid dimensions
     tile_grid_x = (width + TILE_M - 1) // TILE_M
     tile_grid_y = (height + TILE_N - 1) // TILE_N
+    ranges_np = ranges.numpy()
     # Launch the backward rendering kernel
     wp.launch(
         kernel=wp_render_backward_kernel,
@@ -884,6 +895,7 @@ def backward_render(
             dL_dinvdepths  # Added depth gradient output
         ],
     )
+    
     
 def backward(
     # --- Core parameters ---
@@ -1092,6 +1104,7 @@ def backward(
         dL_dcolors=dL_dcolor,
         dL_dinvdepths=dL_dinvdepths  # Pass depth gradient output
     )
+    
     # --- Step 2: Compute gradients for 3D parameters ---
     backward_preprocess(
         num_points=num_points,
