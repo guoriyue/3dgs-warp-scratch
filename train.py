@@ -593,7 +593,6 @@ class NeRFGaussianSplattingTrainer:
                     background=np.array(self.config['background_color'], dtype=np.float32),
                     means3D=self.params['positions'],
                     dL_dpixels=pixel_grad_buffer,
-                    # dL_invdepths=depth_grad_buffer,  # Pass depth gradients
                     
                     # Model parameters (pass directly from self.params)
                     opacity=self.params['opacities'],
@@ -616,7 +615,6 @@ class NeRFGaussianSplattingTrainer:
                     means2D=self.intermediate_buffers['points_xy_image'],
                     conic_opacity=self.intermediate_buffers['conic_opacity'],
                     rgb=self.intermediate_buffers['colors'],
-                    depth=self.intermediate_buffers['depths'],
                     cov3Ds=self.intermediate_buffers['cov3Ds'],
                     clamped=self.intermediate_buffers['clamped_state'],
                     

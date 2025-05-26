@@ -480,21 +480,17 @@ def wp_render_backward_kernel(
     points_xy_image: wp.array(dtype=wp.vec2), # 2D projected positions
     conic_opacity: wp.array(dtype=wp.vec4),   # Conic matrices and opacities (a, b, c, opacity)
     colors: wp.array(dtype=wp.vec3),          # RGB colors
-    depths: wp.array(dtype=float),            # Depth values
     
     # Forward pass results
     final_Ts: wp.array2d(dtype=float),      # Final transparency values
     n_contrib: wp.array2d(dtype=int),       # Number of Gaussians contributing to each pixel
     dL_dpixels: wp.array2d(dtype=wp.vec3),  # Gradient of loss w.r.t. output pixels
-    dL_invdepths: wp.array2d(dtype=float),  # Gradient of loss w.r.t. inverse depths
-    use_invdepth: bool,
     
     # --- Outputs ---
     dL_dmean2D: wp.array(dtype=wp.vec3),    # Gradient w.r.t. 2D mean positions
     dL_dconic2D: wp.array(dtype=wp.vec4),   # Gradient w.r.t. conic matrices
     dL_dopacity: wp.array(dtype=float),     # Gradient w.r.t. opacity
     dL_dcolors: wp.array(dtype=wp.vec3),    # Gradient w.r.t. colors
-    dL_dinvdepths: wp.array(dtype=float)    # Gradient w.r.t. inverse depths
 ):
     """
     Backward version of the rendering procedure, computing gradients of the loss with respect
@@ -520,7 +516,7 @@ def wp_render_backward_kernel(
     pixf_y = float(pix_y)
     
     # Get tile range (start/end indices in point_list)
-    tile_id = tile_y * int(tile_grid[1]) + tile_x
+    tile_id = tile_y * int(tile_grid[0]) + tile_x
 
     range_start = ranges[tile_id][0]
     range_end = ranges[tile_id][1]
@@ -535,17 +531,11 @@ def wp_render_backward_kernel(
     # Initialize working variables
     T = T_final  # Current accumulated transparency
     accum_rec = wp.vec3(0.0, 0.0, 0.0)  # Accumulated color
-    accum_invdepth_rec = float(0.0)  # Accumulated inverse depth
     last_alpha = float(0.0)  # Alpha from the last processed Gaussian
     last_color = wp.vec3(0.0, 0.0, 0.0)  # Color from the last processed Gaussian
-    last_invdepth = float(0.0)  # Inverse depth from the last processed Gaussian
     
     # Get gradients
     dL_dpixel = dL_dpixels[pix_y, pix_x]
-    # if use_invdepth:
-    #     dL_invdepth = dL_invdepths[pix_y, pix_x]
-    # else:
-    #     dL_invdepth = 0.0
     
     # Gradient of pixel coordinate w.r.t. normalized screen-space coordinates
     ddelx_dx = 0.5 * float(W)
@@ -555,7 +545,6 @@ def wp_render_backward_kernel(
         xy = points_xy_image[gaussian_id]
         con_o = conic_opacity[gaussian_id]  # (a, b, c, opacity)
         color = colors[gaussian_id]
-        depth = depths[gaussian_id]
         
         # Compute distance to pixel center
         d_x = xy[0] - pixf_x
@@ -592,14 +581,6 @@ def wp_render_backward_kernel(
         dL_dalpha = wp.dot(color - accum_rec, dL_dpixel)
         wp.atomic_add(dL_dcolors, gaussian_id, dchannel_dcolor * dL_dchannel)
 
-        # # Handle depth gradients if enabled
-        # if use_invdepth:
-        #     invd = 1.0 / depth
-        #     accum_invdepth_rec = last_alpha * last_invdepth + (1.0 - last_alpha) * accum_invdepth_rec
-        #     last_invdepth = invd
-        #     dL_dalpha += (invd - accum_invdepth_rec) * dL_invdepth
-        #     wp.atomic_add(dL_dinvdepths, gaussian_id, dchannel_dcolor * dL_invdepth)
-        
         # Scale dL_dalpha by T
         dL_dalpha *= T
         last_alpha = alpha
@@ -823,17 +804,13 @@ def backward_render(
     points_xy_image,
     conic_opacity,
     colors,
-    depths,  # Added depth parameter
     final_Ts,
     n_contrib,
     dL_dpixels,
-    dL_invdepths,  # Added depth gradient parameter
-    use_invdepth,
     dL_dmean2D,
     dL_dconic2D,
     dL_dopacity,
     dL_dcolors,
-    dL_dinvdepths,  # Added output depth gradient parameter
 ):
     """
     Orchestrates the backward rendering process by launching the backward kernel.
@@ -846,16 +823,13 @@ def backward_render(
         points_xy_image: 2D positions of Gaussians
         conic_opacity: Conic matrices and opacities
         colors: RGB colors
-        depths: Depth values for each Gaussian
         final_Ts: Final transparency values from forward pass
         n_contrib: Number of contributors per pixel
         dL_dpixels: Gradient of loss w.r.t. output pixels
-        dL_invdepths: Gradient of loss w.r.t. inverse depths
         dL_dmean2D: Output gradient w.r.t. 2D mean positions
         dL_dconic2D: Output gradient w.r.t. conic matrices
         dL_dopacity: Output gradient w.r.t. opacity
         dL_dcolors: Output gradient w.r.t. colors
-        dL_dinvdepths: Output gradient w.r.t. inverse depths
     """
     # Calculate tile grid dimensions
     tile_grid_x = (width + TILE_M - 1) // TILE_M
@@ -875,20 +849,24 @@ def backward_render(
             points_xy_image,
             conic_opacity,
             colors,
-            depths,  # Added depth input
             final_Ts,
             n_contrib,
             dL_dpixels,
-            dL_invdepths,  # Added depth gradient input
-            use_invdepth,
             dL_dmean2D,
             dL_dconic2D,
             dL_dopacity,
             dL_dcolors,
-            dL_dinvdepths  # Added depth gradient output
         ],
     )
-    
+    dL_dmeans_np = dL_dmean2D.numpy()
+    print("dL_dmeans_np", dL_dmeans_np)
+    dL_dconic2D_np = dL_dconic2D.numpy()
+    print("dL_dconic2D_np", dL_dconic2D_np)
+    dL_dopacity_np = dL_dopacity.numpy()
+    print("dL_dopacity_np", dL_dopacity_np)
+    dL_dcolors_np = dL_dcolors.numpy()
+    print("dL_dcolors_np", dL_dcolors_np)
+    exit()
     
 def backward(
     # --- Core parameters ---
@@ -915,9 +893,7 @@ def backward(
     conic_opacity=None,
     rgb=None,
     clamped=None,
-    depth=None,  # Added depth parameter
     cov3Ds=None,
-    dL_invdepths=None,
     # --- Internal state buffers ---
     geom_buffer=None,
     binning_buffer=None,
@@ -955,9 +931,7 @@ def backward(
         conic_opacity: Conic matrices + opacity from forward pass (N, 4)
         rgb: RGB colors from forward pass (N, 3)
         clamped: Clamping state from forward pass (N, 3)
-        depth: Depth values from forward pass (N,)
         cov3Ds: 3D covariance matrices from forward pass (N, 6)
-        dL_invdepths: Gradient of loss w.r.t. inverse depths (N,)
         geom_buffer: Dictionary holding geometric state
         binning_buffer: Dictionary holding binning state
         img_buffer: Dictionary holding image state
@@ -972,7 +946,6 @@ def backward(
             - dL_dopacity: Gradient w.r.t. opacity (N,)
             - dL_dscale: Gradient w.r.t. scales (N, 3)
             - dL_drot: Gradient w.r.t. rotations (N, 4)
-            - dL_dinvdepths: Gradient w.r.t. inverse depths (N,)
     """
     # Calculate focal lengths from FoV
     focal_y = image_height / (2.0 * tan_fovy)
@@ -1035,12 +1008,6 @@ def backward(
             rgb = geom_buffer.get('rgb')
         if clamped is None:
             clamped = geom_buffer.get('clamped_state')
-        if depth is None:
-            depth = geom_buffer.get('depth')  # Get depth from geom buffer if available
-    
-    use_invdepth = False if dL_invdepths is None else True
-    if use_invdepth:
-        print("WARNING: Using inverse depth gradients is ")
 
     # Convert forward pass outputs to warp arrays if they're not already
     radii_warp = to_warp_array(radii, int) if radii is not None else None
@@ -1048,16 +1015,13 @@ def backward(
     conic_opacity_warp = to_warp_array(conic_opacity, wp.vec4) if conic_opacity is not None else None
     rgb_warp = to_warp_array(rgb, wp.vec3) if rgb is not None else None
     clamped_warp = to_warp_array(clamped, wp.uint32) if clamped is not None else None
-    depth_warp = to_warp_array(depth, float) if depth is not None else None
-    dL_invdepths_warp = to_warp_array(dL_invdepths, float) if dL_invdepths is not None else None
-    
+
     # --- Initialize output gradient arrays ---
     dL_dmean2D = wp.zeros(num_points, dtype=wp.vec3, device=DEVICE)
     dL_dconic = wp.zeros(num_points, dtype=wp.vec4, device=DEVICE)
     dL_dopacity = wp.zeros(num_points, dtype=float, device=DEVICE)
     dL_dcolor = wp.zeros(num_points, dtype=wp.vec3, device=DEVICE)
-    dL_dinvdepths = wp.zeros(num_points, dtype=float, device=DEVICE)  # Initialize depth gradient output
-    
+
     dL_dmean3D = wp.zeros(num_points, dtype=wp.vec3, device=DEVICE)
     dL_dcov3D = wp.zeros(num_points, dtype=VEC6, device=DEVICE)
     
@@ -1085,17 +1049,13 @@ def backward(
         points_xy_image=means2D_warp,
         conic_opacity=conic_opacity_warp,
         colors=rgb_warp,
-        depths=depth_warp,  # Pass depth values
         final_Ts=final_Ts,
         n_contrib=n_contrib,
         dL_dpixels=dL_dpixels_warp,
-        dL_invdepths=dL_invdepths_warp,  # Pass depth gradients
-        use_invdepth=use_invdepth,
         dL_dmean2D=dL_dmean2D,
         dL_dconic2D=dL_dconic,
         dL_dopacity=dL_dopacity,
         dL_dcolors=dL_dcolor,
-        dL_dinvdepths=dL_dinvdepths  # Pass depth gradient output
     )
     
     # --- Step 2: Compute gradients for 3D parameters ---
@@ -1136,7 +1096,6 @@ def backward(
         'dL_dopacity': dL_dopacity,
         'dL_dscale': dL_dscale,
         'dL_drot': dL_drot,
-        'dL_dinvdepths': dL_dinvdepths,  # Include depth gradients in return
         # Include 2D gradients for completeness
         'dL_dmean2D': dL_dmean2D,
         'dL_dconic': dL_dconic,
