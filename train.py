@@ -649,7 +649,7 @@ class NeRFGaussianSplattingTrainer:
                 # Save checkpoint
                 if iteration % self.config['save_interval'] == 0 or iteration == num_iterations - 1:
                     self.save_checkpoint(iteration)
-
+                exit()
                 
         print("Training complete!")
 

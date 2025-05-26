@@ -550,9 +550,6 @@ def wp_render_backward_kernel(
     # Gradient of pixel coordinate w.r.t. normalized screen-space coordinates
     ddelx_dx = 0.5 * float(W)
     ddely_dy = 0.5 * float(H)
-    # print(range_end - 1, first_kept - 1)
-    # Process Gaussians in back-to-front order
-    # for i in range(range_end - 1, first_kept - 1, -1):
     for i in range(last_kept - 1, range_start - 1, -1):
         gaussian_id = point_list[i]
         xy = points_xy_image[gaussian_id]
@@ -619,11 +616,7 @@ def wp_render_backward_kernel(
         dG_ddely = -gdy * con_o[2] - gdx * con_o[1]
         
         # if gaussian_id == 0:
-        #     # 57 and tile_id == 101
-        #     # print(dL_dG * dG_ddelx * ddelx_dx)
         #     print(tile_id)
-        #     print(range_end - range_start)
-        #     print(last_contributor)
 
         # Update gradients w.r.t. 2D mean position
         wp.atomic_add(dL_dmean2D, gaussian_id, wp.vec3(
