@@ -12,10 +12,9 @@ import argparse
 from forward import render_gaussians
 from backward import backward, mark_densify_candidates, prune_gaussians, adam_update, clone_gaussians, compact_gaussians
 from config import *
-from utils.math_utils import projection_matrix
 from utils.camera_utils import load_camera
 from utils.point_cloud_utils import save_ply
-from loss import l1_loss, ssim, compute_image_gradients, depth_loss
+from loss import l1_loss, compute_image_gradients
 
 # Initialize Warp
 wp.init()

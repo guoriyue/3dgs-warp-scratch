@@ -1159,8 +1159,6 @@ def clone_gaussians(
         for j in range(16):
             out_shs[new_idx * 16 + j] = shs[i * 16 + j]
 
-
-
 @wp.kernel
 def prune_gaussians(
     opacities: wp.array(dtype=float),
@@ -1171,7 +1169,7 @@ def prune_gaussians(
     i = wp.tid()
     if i >= num_points:
         return
-    
+    print(opacities[i])
     # Mark Gaussians for keeping or removal
     if opacities[i] > opacity_threshold:
         valid_mask[i] = 1
