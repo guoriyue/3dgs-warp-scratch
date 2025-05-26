@@ -10,16 +10,13 @@ import argparse
 
 # Import the renderer and constants
 from forward import render_gaussians
-from backward import backward, densify_gaussians, prune_gaussians, adam_update
+from backward import backward, mark_densify_candidates, prune_gaussians, adam_update, clone_gaussians, compact_gaussians
 from config import *
 from utils.math_utils import projection_matrix
 from utils.camera_utils import load_camera
-from utils.point_cloud_utils import compact_point_cloud, save_ply
+from utils.point_cloud_utils import save_ply
 from loss import l1_loss, ssim, compute_image_gradients, depth_loss
 
-            
-
-        
 # Initialize Warp
 wp.init()
 
@@ -264,59 +261,141 @@ class NeRFGaussianSplattingTrainer:
             ]
         )
     
+    
     def densification_and_pruning(self, iteration):
         """Perform densification and pruning of Gaussians."""
-        # Simplified densification - add noise to positions based on gradients
+
+        # ---------- Densify ----------
         if iteration % self.config['densification_interval'] == 0:
             print(f"Iteration {iteration}: Performing densification")
+
+            grad_threshold = self.config.get("densify_grad_threshold", 0.1)
+            densify_mask = wp.zeros(self.num_points, dtype=int)
+
             wp.launch(
-                densify_gaussians,
+                mark_densify_candidates,
                 dim=self.num_points,
                 inputs=[
-                    self.params['positions'],
                     self.grads['positions'],
                     self.grads['scales'],
-                    self.num_points,
-                    0.01  # noise scale
+                    grad_threshold,
+                    densify_mask,
+                    self.num_points
                 ]
             )
-        
-        # Simplified pruning - remove Gaussians with low opacity
+
+            prefix_sum = wp.zeros_like(densify_mask)
+            wp.utils.array_scan(densify_mask, prefix_sum, inclusive=False)
+            # Step 3: Get number of clones (sum of clone_mask)
+            total_to_clone = int(prefix_sum.numpy()[-1])
+            if total_to_clone == 0:
+                return  # Nothing to do
+
+            print(f"[Densify] Cloning {total_to_clone} points")
+
+            N = self.num_points
+            new_N = N + total_to_clone
+
+            # Step 4: Allocate output arrays (N + total_to_clone)
+            out_params = {
+                'positions': wp.zeros(new_N, dtype=wp.vec3),
+                'scales': wp.zeros(new_N, dtype=wp.vec3),
+                'rotations': wp.zeros(new_N, dtype=wp.vec4),
+                'opacities': wp.zeros(new_N, dtype=float),
+                'shs': wp.zeros(new_N * 16, dtype=wp.vec3)
+            }
+
+            # Step 5: Clone into expanded buffer
+            wp.launch(
+                clone_gaussians,
+                dim=N,
+                inputs=[
+                    densify_mask,
+                    prefix_sum,
+                    self.params['positions'],
+                    self.params['scales'],
+                    self.params['rotations'],
+                    self.params['opacities'],
+                    self.params['shs'],
+                    0.01,
+                    N,  # offset to write new points
+                    out_params['positions'],
+                    out_params['scales'],
+                    out_params['rotations'],
+                    out_params['opacities'],
+                    out_params['shs']
+                ]
+            )
+
+            # Step 6: Replace original
+            self.params = out_params
+            self.num_points = new_N
+            self.grads = self.create_gradient_arrays()
+            self.adam_m = self.create_gradient_arrays()
+            self.adam_v = self.create_gradient_arrays()
+
+        # ---------- Prune ----------
         if iteration % self.config['pruning_interval'] == 0:
             print(f"Iteration {iteration}: Performing pruning")
-            # Create mask for valid Gaussians
+
             valid_mask = wp.zeros(self.num_points, dtype=int)
-            
+            opacity_threshold = self.config.get("cull_opacity_threshold", 0.1)
+
             wp.launch(
                 prune_gaussians,
                 dim=self.num_points,
                 inputs=[
                     self.params['opacities'],
-                    0.1,  # opacity threshold
+                    opacity_threshold,
                     valid_mask,
                     self.num_points
                 ]
             )
-            
-            # Count valid points
-            valid_count = int(np.sum(valid_mask.numpy()))
-            
-            # Only prune if we have enough valid points
-            if valid_count > 1000 and valid_count < self.num_points:
-                print(f"Pruning point cloud from {self.num_points} to {valid_count} points")
-                
-                # Create new parameters with only valid points
-                new_params, new_num_points = compact_point_cloud(self.params, valid_mask)
-                
-                # Update parameters and count
-                self.params = new_params
-                self.num_points = new_num_points
-                
-                # Create new gradient arrays
+
+            # Prefix sum to find new indices
+            prefix_sum = wp.zeros_like(valid_mask)
+            wp.utils.array_scan(valid_mask, prefix_sum, inclusive=False)
+
+            valid_count = int(prefix_sum.numpy()[-1])
+
+            if valid_count > self.config['min_valid_points'] and valid_count < self.config['max_valid_points']:
+                print(f"[Prune] Compacting from {self.num_points} → {valid_count} points")
+
+                # Allocate compacted output
+                out_params = {
+                    'positions': wp.zeros(valid_count, dtype=wp.vec3),
+                    'scales': wp.zeros(valid_count, dtype=wp.vec3),
+                    'rotations': wp.zeros(valid_count, dtype=wp.vec4),
+                    'opacities': wp.zeros(valid_count, dtype=float),
+                    'shs': wp.zeros(valid_count * 16, dtype=wp.vec3)
+                }
+
+                wp.launch(
+                    compact_gaussians,
+                    dim=self.num_points,
+                    inputs=[
+                        valid_mask,
+                        prefix_sum,
+                        self.params['positions'],
+                        self.params['scales'],
+                        self.params['rotations'],
+                        self.params['opacities'],
+                        self.params['shs'],
+                        out_params['positions'],
+                        out_params['scales'],
+                        out_params['rotations'],
+                        out_params['opacities'],
+                        out_params['shs']
+                    ]
+                )
+
+                # Replace with compacted buffers
+                self.params = out_params
+                self.num_points = valid_count
                 self.grads = self.create_gradient_arrays()
                 self.adam_m = self.create_gradient_arrays()
                 self.adam_v = self.create_gradient_arrays()
-    
+
     def optimizer_step(self, iteration):
         """Perform an Adam optimization step."""
         wp.launch(
@@ -647,7 +726,6 @@ class NeRFGaussianSplattingTrainer:
                 # Save checkpoint
                 if iteration % self.config['save_interval'] == 0 or iteration == num_iterations - 1:
                     self.save_checkpoint(iteration)
-                exit()
                 
         print("Training complete!")
 

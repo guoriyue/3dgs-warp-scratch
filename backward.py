@@ -1,6 +1,6 @@
 import warp as wp
 import math
-from utils.wp_utils import to_warp_array, wp_vec3_mul_element, wp_vec3_add_element, wp_vec3_sqrt, wp_vec3_div_element
+from utils.wp_utils import to_warp_array, wp_vec3_mul_element, wp_vec3_add_element, wp_vec3_sqrt, wp_vec3_div_element, wp_vec3_clamp
 from config import * # Assuming TILE_M, TILE_N, VEC6, DEVICE are defined here
 
 # Initialize Warp if not already done elsewhere
@@ -858,15 +858,6 @@ def backward_render(
             dL_dcolors,
         ],
     )
-    dL_dmeans_np = dL_dmean2D.numpy()
-    print("dL_dmeans_np", dL_dmeans_np)
-    dL_dconic2D_np = dL_dconic2D.numpy()
-    print("dL_dconic2D_np", dL_dconic2D_np)
-    dL_dopacity_np = dL_dopacity.numpy()
-    print("dL_dopacity_np", dL_dopacity_np)
-    dL_dcolors_np = dL_dcolors.numpy()
-    print("dL_dcolors_np", dL_dcolors_np)
-    exit()
     
 def backward(
     # --- Core parameters ---
@@ -1103,32 +1094,72 @@ def backward(
     }
 
 @wp.kernel
-def densify_gaussians(
-    positions: wp.array(dtype=wp.vec3),
+def mark_densify_candidates(
     pos_grads: wp.array(dtype=wp.vec3),
     scale_grads: wp.array(dtype=wp.vec3),
-    num_points: int,
-    noise_scale: float
+    grad_threshold: float,
+    candidate_mask: wp.array(dtype=int),
+    num_points: int
 ):
     i = wp.tid()
     if i >= num_points:
         return
-    
-    # Get gradient magnitudes to identify high-gradient Gaussians
-    pos_grad_mag = wp.length(pos_grads[i])
-    scale_grad_mag = wp.length(scale_grads[i])
-    
-    # We just add noise to positions based on gradients
-    # In a full implementation, you'd clone Gaussians with high gradient magnitude
-    if pos_grad_mag > 0.1 or scale_grad_mag > 0.1:
-        # Add random noise to position
+
+    pos_mag = wp.length(pos_grads[i])
+    scale_mag = wp.length(scale_grads[i])
+
+    if pos_mag > grad_threshold or scale_mag > grad_threshold:
+        candidate_mask[i] = 1
+    else:
+        candidate_mask[i] = 0
+
+@wp.kernel
+def clone_gaussians(
+    clone_mask: wp.array(dtype=int),
+    prefix_sum: wp.array(dtype=int),
+    positions: wp.array(dtype=wp.vec3),
+    scales: wp.array(dtype=wp.vec3),
+    rotations: wp.array(dtype=wp.vec4),
+    opacities: wp.array(dtype=float),
+    shs: wp.array(dtype=wp.vec3),  # [N * 16]
+    noise_scale: float,
+    offset: int,  # where to start writing new points
+    out_positions: wp.array(dtype=wp.vec3),
+    out_scales: wp.array(dtype=wp.vec3),
+    out_rotations: wp.array(dtype=wp.vec4),
+    out_opacities: wp.array(dtype=float),
+    out_shs: wp.array(dtype=wp.vec3)
+):
+    i = wp.tid()
+    if i >= offset:
+        return
+
+    # Copy original
+    out_positions[i] = positions[i]
+    out_scales[i] = scales[i]
+    out_rotations[i] = rotations[i]
+    out_opacities[i] = opacities[i]
+    for j in range(16):
+        out_shs[i * 16 + j] = shs[i * 16 + j]
+
+    # Clone if marked
+    if clone_mask[i] == 1:
+        new_idx = prefix_sum[i] + offset
+
         seed = wp.uint32(i)
         noise = wp.vec3(
-            wp.randn(seed) * noise_scale,
-            wp.randn(seed + wp.uint32(1000)) * noise_scale,
-            wp.randn(seed + wp.uint32(2000)) * noise_scale
+            wp.randf(wp.uint32(i * 3)) * noise_scale,
+            wp.randf(wp.uint32(i * 3 + 1)) * noise_scale,
+            wp.randf(wp.uint32(i * 3 + 2)) * noise_scale
         )
-        positions[i] = positions[i] + noise
+        out_positions[new_idx] = positions[i] + noise
+        out_scales[new_idx] = scales[i]
+        out_rotations[new_idx] = rotations[i]
+        out_opacities[new_idx] = opacities[i]
+        for j in range(16):
+            out_shs[new_idx * 16 + j] = shs[i * 16 + j]
+
+
 
 @wp.kernel
 def prune_gaussians(
@@ -1147,14 +1178,36 @@ def prune_gaussians(
     else:
         valid_mask[i] = 0
 
+@wp.kernel
+def compact_gaussians(
+    valid_mask: wp.array(dtype=int),
+    prefix_sum: wp.array(dtype=int),
+    positions: wp.array(dtype=wp.vec3),
+    scales: wp.array(dtype=wp.vec3),
+    rotations: wp.array(dtype=wp.vec4),
+    opacities: wp.array(dtype=float),
+    shs: wp.array(dtype=wp.vec3),  # shape: [N * 16]
 
-@wp.func
-def wp_vec3_clamp(x: wp.vec3, min_val: float, max_val: float) -> wp.vec3:
-    return wp.vec3(
-        wp.clamp(x[0], min_val, max_val),
-        wp.clamp(x[1], min_val, max_val),
-        wp.clamp(x[2], min_val, max_val)
-    )
+    out_positions: wp.array(dtype=wp.vec3),
+    out_scales: wp.array(dtype=wp.vec3),
+    out_rotations: wp.array(dtype=wp.vec4),
+    out_opacities: wp.array(dtype=float),
+    out_shs: wp.array(dtype=wp.vec3)
+):
+    i = wp.tid()
+    if valid_mask[i] == 0:
+        return
+
+    new_i = prefix_sum[i]
+
+    out_positions[new_i] = positions[i]
+    out_scales[new_i] = scales[i]
+    out_rotations[new_i] = rotations[i]
+    out_opacities[new_i] = opacities[i]
+
+    for j in range(16):
+        out_shs[new_i * 16 + j] = shs[i * 16 + j]
+
 
 @wp.kernel
 def adam_update(

@@ -34,15 +34,20 @@ class GaussianParams:
     lr_rot = 5e-3
     lr_sh = 2e-3
     lr_opac = 5e-3
-    num_points = 1000 # Initial number of Gaussian points
+    num_points = 2000 # Initial number of Gaussian points
 
     # Optimization parameters
-    densification_interval = 2000  # Perform densification every N iterations
-    pruning_interval = 2000  # Perform pruning every N iterations
-    save_interval = 10  # Save checkpoint every N iterations
+    densification_interval = 300  # Perform densification every N iterations
+    pruning_interval = 300  # Perform pruning every N iterations
+    save_interval = 300  # Save checkpoint every N iterations
     adam_beta1 = 0.9  # Adam optimizer beta1 parameter
     adam_beta2 = 0.999  # Adam optimizer beta2 parameter
     adam_epsilon = 1e-8  # Adam optimizer epsilon parameter
+    
+    densify_grad_threshold = 0.0002
+    cull_opacity_threshold = 0.005
+    min_valid_points = 1000
+    max_valid_points = 100000
 
     # Gaussian parameters
     initial_scale = 0.1  # Initial scale for Gaussian points
@@ -131,6 +136,10 @@ class GaussianParams:
             'depth_l1_weight_init': cls.depth_l1_weight_init,
             'depth_l1_weight_final': cls.depth_l1_weight_final,
             'depth_l1_delay_steps': cls.depth_l1_delay_steps,
-            'depth_l1_delay_mult': cls.depth_l1_delay_mult
+            'depth_l1_delay_mult': cls.depth_l1_delay_mult,
+            'densify_grad_threshold': cls.densify_grad_threshold,
+            'cull_opacity_threshold': cls.cull_opacity_threshold,
+            'min_valid_points': cls.min_valid_points,
+            'max_valid_points': cls.max_valid_points
         }
 
