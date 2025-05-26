@@ -724,7 +724,7 @@ class NeRFGaussianSplattingTrainer:
 
 def main():
     parser = argparse.ArgumentParser(description="Train 3D Gaussian Splatting model with NeRF dataset")
-    parser.add_argument("--dataset", type=str, default="/Users/guomingfei/Desktop/warp-nerf-scratch/data/nerf_synthetic/lego",
+    parser.add_argument("--dataset", type=str, default="./data/nerf_synthetic/lego",
                         help="Path to NeRF dataset directory (default: Lego dataset)")
     parser.add_argument("--output", type=str, default="./output", help="Output directory")
 
