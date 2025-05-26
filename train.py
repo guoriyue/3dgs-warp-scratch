@@ -279,7 +279,8 @@ class NeRFGaussianSplattingTrainer:
             prefix_sum = wp.zeros_like(densify_mask)
             wp.utils.array_scan(densify_mask, prefix_sum, inclusive=False)
             # Step 3: Get number of clones (sum of clone_mask)
-            total_to_clone = int(prefix_sum.numpy()[-1])
+            to_clone = int(prefix_sum.numpy()[-1])
+            total_to_clone = self.config['points_clone_split'] * to_clone
             if total_to_clone == 0:
                 return  # Nothing to do
 
@@ -310,12 +311,13 @@ class NeRFGaussianSplattingTrainer:
                     self.params['opacities'],
                     self.params['shs'],
                     0.01,
-                    N,  # offset to write new points
+                    self.num_points,  # offset to write new points
                     out_params['positions'],
                     out_params['scales'],
                     out_params['rotations'],
                     out_params['opacities'],
-                    out_params['shs']
+                    out_params['shs'],
+                    self.config['points_clone_split']
                 ]
             )
 
@@ -327,7 +329,7 @@ class NeRFGaussianSplattingTrainer:
             self.adam_v = self.create_gradient_arrays()
 
         # ---------- Prune ----------
-        if iteration % self.config['pruning_interval'] == 0:
+        if iteration % self.config['pruning_interval'] == 0 and iteration >= self.config['start_prune_iter'] and iteration <= self.config['end_prune_iter']:
             print(f"Iteration {iteration}: Performing pruning")
 
             valid_mask = wp.zeros(self.num_points, dtype=int)

@@ -1121,20 +1121,23 @@ def clone_gaussians(
     scales: wp.array(dtype=wp.vec3),
     rotations: wp.array(dtype=wp.vec4),
     opacities: wp.array(dtype=float),
-    shs: wp.array(dtype=wp.vec3),  # [N * 16]
+    shs: wp.array(dtype=wp.vec3),  # shape: [N * 16]
+
     noise_scale: float,
     offset: int,  # where to start writing new points
     out_positions: wp.array(dtype=wp.vec3),
     out_scales: wp.array(dtype=wp.vec3),
     out_rotations: wp.array(dtype=wp.vec4),
     out_opacities: wp.array(dtype=float),
-    out_shs: wp.array(dtype=wp.vec3)
+    out_shs: wp.array(dtype=wp.vec3),
+
+    points_clone_split: int
 ):
     i = wp.tid()
     if i >= offset:
         return
 
-    # Copy original
+    # Copy original to out[i]
     out_positions[i] = positions[i]
     out_scales[i] = scales[i]
     out_rotations[i] = rotations[i]
@@ -1142,22 +1145,30 @@ def clone_gaussians(
     for j in range(16):
         out_shs[i * 16 + j] = shs[i * 16 + j]
 
-    # Clone if marked
     if clone_mask[i] == 1:
-        new_idx = prefix_sum[i] + offset
+        base_idx = prefix_sum[i] * points_clone_split + offset
+        pos = positions[i]
+        scale = scales[i]
+        rot = rotations[i]
+        opac = opacities[i]
 
-        seed = wp.uint32(i)
-        noise = wp.vec3(
-            wp.randf(wp.uint32(i * 3)) * noise_scale,
-            wp.randf(wp.uint32(i * 3 + 1)) * noise_scale,
-            wp.randf(wp.uint32(i * 3 + 2)) * noise_scale
-        )
-        out_positions[new_idx] = positions[i] + noise
-        out_scales[new_idx] = scales[i]
-        out_rotations[new_idx] = rotations[i]
-        out_opacities[new_idx] = opacities[i]
-        for j in range(16):
-            out_shs[new_idx * 16 + j] = shs[i * 16 + j]
+        for k in range(points_clone_split):
+            new_idx = base_idx + k
+
+            seed = wp.uint32(i * 101 + k * 47)
+            noise = wp.vec3(
+                wp.randf(seed) * noise_scale,
+                wp.randf(seed + 1) * noise_scale,
+                wp.randf(seed + 2) * noise_scale
+            )
+
+            out_positions[new_idx] = pos + noise
+            out_scales[new_idx] = scale
+            out_rotations[new_idx] = rot
+            out_opacities[new_idx] = opac
+
+            for j in range(16):
+                out_shs[new_idx * 16 + j] = shs[i * 16 + j]
 
 @wp.kernel
 def prune_gaussians(
