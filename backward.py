@@ -1169,7 +1169,6 @@ def prune_gaussians(
     i = wp.tid()
     if i >= num_points:
         return
-    print(opacities[i])
     # Mark Gaussians for keeping or removal
     if opacities[i] > opacity_threshold:
         valid_mask[i] = 1
