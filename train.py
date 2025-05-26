@@ -321,6 +321,7 @@ class NeRFGaussianSplattingTrainer:
                 ]
             )
 
+            
             # Step 6: Replace original
             self.params = out_params
             self.num_points = new_N
@@ -383,8 +384,9 @@ class NeRFGaussianSplattingTrainer:
                     ]
                 )
 
-                # Replace with compacted buffers
+
                 self.params = out_params
+
                 self.num_points = valid_count
                 self.grads = self.create_gradient_arrays()
                 self.adam_m = self.create_gradient_arrays()

@@ -596,8 +596,6 @@ def wp_render_backward_kernel(
         dG_ddelx = -gdx * con_o[0] - gdy * con_o[1]
         dG_ddely = -gdy * con_o[2] - gdx * con_o[1]
         
-        # if gaussian_id == 0:
-        #     print(tile_id)
 
         # Update gradients w.r.t. 2D mean position
         wp.atomic_add(dL_dmean2D, gaussian_id, wp.vec3(
@@ -1155,11 +1153,10 @@ def clone_gaussians(
         for k in range(points_clone_split):
             new_idx = base_idx + k
 
-            seed = wp.uint32(i * 101 + k * 47)
             noise = wp.vec3(
-                wp.randf(seed) * noise_scale,
-                wp.randf(seed + 1) * noise_scale,
-                wp.randf(seed + 2) * noise_scale
+                wp.randf(wp.uint32(i * 3 * points_clone_split + k * 3)) * noise_scale,
+                wp.randf(wp.uint32(i * 3 * points_clone_split + k * 3 + 1)) * noise_scale,
+                wp.randf(wp.uint32(i * 3 * points_clone_split + k * 3 + 2)) * noise_scale
             )
 
             out_positions[new_idx] = pos + noise
