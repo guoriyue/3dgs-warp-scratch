@@ -34,7 +34,7 @@ class GaussianParams:
     lr_rot = 5e-3
     lr_sh = 2e-3
     lr_opac = 5e-3
-    num_points = 2000 # Initial number of Gaussian points
+    num_points = 5000 # Initial number of Gaussian points
 
     # Optimization parameters
     densification_interval = 300  # Perform densification every N iterations
@@ -46,7 +46,7 @@ class GaussianParams:
     
     densify_grad_threshold = 0.0002
     cull_opacity_threshold = 0.005
-    min_valid_points = 1000
+    min_valid_points = 3000
     max_valid_points = 100000
 
     # Gaussian parameters

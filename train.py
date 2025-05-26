@@ -626,9 +626,6 @@ class NeRFGaussianSplattingTrainer:
                 
                 loss = l1_val
                 self.losses.append(loss)
-                
-                print("loss", loss)
-                
                 # Compute pixel gradients for image loss (dL/dColor)
                 pixel_grad_buffer = compute_image_gradients(
                     rendered_image, target_image, lambda_dssim=0
