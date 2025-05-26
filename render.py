@@ -2,14 +2,8 @@ import numpy as np
 import warp as wp
 import matplotlib.pyplot as plt
 import math
-import argparse
-import os
-import json
 from forward import render_gaussians
-from utils.math_utils import world_to_view, projection_matrix, matrix_to_quaternion
-from utils.point_cloud_utils import load_ply, load_gaussians_from_path
-from utils.camera_utils import load_camera_from_json
-from config import DEVICE
+from utils.math_utils import world_to_view, projection_matrix
 
 # Initialize Warp
 wp.init()
@@ -54,7 +48,7 @@ def setup_example_scene(image_width=1800, image_height=1800, fovx=45.0, fovy=45.
         'height': image_height
     }
     
-    # Gaussian setup
+    # Gaussian setup - 3 points in a line
     pts = np.array([[-5, 0, -10], [0, 0, -10], [5, 0, -10]], dtype=np.float32)
     n = len(pts)
     
@@ -88,18 +82,9 @@ def setup_example_scene(image_width=1800, image_height=1800, fovx=45.0, fovy=45.
     return pts, shs, scales, colors, rotations, opacities, camera_params
 
 if __name__ == "__main__":
-    # Parse command-line arguments
-    parser = argparse.ArgumentParser(description="Render 3D Gaussians")
-    parser.add_argument("--input_path", type=str, default=None, 
-                        help="Path to input data (PLY file or directory)")
-    parser.add_argument("--output", type=str, default="gaussian_render.png",
-                        help="Output image filename")
-    parser.add_argument("--width", type=int, default=1800, help="Image width")
-    parser.add_argument("--height", type=int, default=1800, help="Image height")
-    parser.add_argument("--debug", action="store_true", help="Enable additional debug output")
-    args = parser.parse_args()
-    
-    # Default rendering parameters
+    # Setup rendering parameters
+    image_width = 1800
+    image_height = 1800
     background = np.array([0.0, 0.0, 0.0], dtype=np.float32)  # Black background
     scale_modifier = 1.0
     sh_degree = 3
@@ -107,100 +92,13 @@ if __name__ == "__main__":
     antialiasing = False
     clamped = True
     
-    if args.input_path:
-        # Load Gaussians from provided path
-        try:
-            ply_path = "/Users/guomingfei/Desktop/warp-nerf-scratch/playroom/point_cloud/iteration_30000/point_cloud.ply"
-            print(f"Loading point cloud from: {ply_path}")
-            pts, scales, rotations, opacities, colors, shs = load_gaussians_from_path(ply_path)
-            
-            n = len(pts)
-            print(f"Loaded {n} points from PLY file")
-            print(f"Point cloud statistics:")
-            print(f"  - Position range: Min {pts.min(axis=0)}, Max {pts.max(axis=0)}")
-            print(f"  - Scale range: Min {scales.min(axis=0)}, Max {scales.max(axis=0)}")
-            print(f"  - Opacity range: Min {opacities.min()}, Max {opacities.max()}")
-            print(f"  - Quaternion rotation shape: {rotations.shape}")
-            
-            if args.debug and n > 0:
-                # Print out a sample point for debugging
-                idx = 0
-                print(f"Sample point {idx}:")
-                print(f"  - Position: {pts[idx]}")
-                print(f"  - Scale: {scales[idx]}")
-                print(f"  - Rotation (quaternion x,y,z,w): {rotations[idx]}")
-                print(f"  - Opacity: {opacities[idx]}")
-                if shs is not None:
-                    print(f"  - SH (first coefficient): {shs[idx][0]}")
-            
-            # Try to load camera from cameras.json
-            camera_params = load_camera_from_json(f"{args.input_path}/cameras.json", camera_id=0)
-   
-            # If no camera found, use default camera
-            if camera_params is None:
-                print("Using default camera parameters")
-                camera_params = setup_example_scene(
-                    image_width=args.width, 
-                    image_height=args.height
-                )[-1]  # Get only the camera_params from the tuple
-            else:
-                # Update image dimensions from camera if available
-                if 'width' in camera_params and 'height' in camera_params:
-                    args.width = camera_params['width']
-                    args.height = camera_params['height']
-                    print(f"Using image dimensions from camera: {args.width}x{args.height}")
-                    
-                # Print camera info for debugging
-                print(f"Camera parameters:")
-                print(f"  - Position: {camera_params['camera_center']}")
-                print(f"  - View matrix: \n{camera_params['view_matrix']}")
-                print(f"  - Projection matrix: \n{camera_params['proj_matrix']}")
-            
-        except Exception as e:
-            print(f"Error loading from path: {e}")
-            import traceback
-            traceback.print_exc()
-            exit(1)
-    else:
-        # Use example scene
-        pts, shs, scales, colors, rotations, opacities, camera_params = setup_example_scene(
-            image_width=args.width,
-            image_height=args.height
-        )
-        n = len(pts)
-        print(f"Using {n} example Gaussians")
-
-    # Debugging: Force a fixed camera for consistency
-    if args.debug and args.input_path:
-        print("Using a fixed example camera for debugging")
-        camera_params = setup_example_scene(
-            image_width=args.width, 
-            image_height=args.height
-        )[-1]  # Get only the camera_params from the tuple
-
-    print(f"Starting rendering with {n} points to {args.width}x{args.height} image")
-    
-    if args.debug:
-        print("Rendering parameters:")
-        print("background", background)
-        print("pts", pts.shape)
-        print("colors", colors.shape)
-        print("opacities", opacities.shape)
-        print("scales", scales.shape)
-        print("rotations", rotations.shape)
-        print("scale_modifier", scale_modifier)
-        print("viewmatrix", camera_params['view_matrix'])
-        print("projmatrix", camera_params['proj_matrix'])
-        print("tan_fovx", camera_params['tan_fovx'])
-        print("tan_fovy", camera_params['tan_fovy'])
-        print("image_height", args.height)
-        print("image_width", args.width)
-        print("shs", shs.shape)
-        print("degree", sh_degree)
-        print("campos", camera_params['camera_center'])
-        print("prefiltered", prefiltered)
-        print("antialiasing", antialiasing)
-        print("clamped", clamped)
+    # Create example scene
+    pts, shs, scales, colors, rotations, opacities, camera_params = setup_example_scene(
+        image_width=image_width,
+        image_height=image_height
+    )
+    n = len(pts)
+    print(f"Created example scene with {n} Gaussians")
     
     # Call the Gaussian rasterizer
     rendered_image, depth_image, _ = render_gaussians(
@@ -215,15 +113,15 @@ if __name__ == "__main__":
         projmatrix=camera_params['full_proj_matrix'],
         tan_fovx=camera_params['tan_fovx'],
         tan_fovy=camera_params['tan_fovy'],
-        image_height=args.height,
-        image_width=args.width,
+        image_height=image_height,
+        image_width=image_width,
         sh=shs,
         degree=sh_degree,
         campos=camera_params['camera_center'],
         prefiltered=prefiltered,
         antialiasing=antialiasing,
         clamped=clamped,
-        debug=args.debug
+        debug=False
     )
 
     print("Rendering completed")
@@ -231,16 +129,10 @@ if __name__ == "__main__":
     # Convert the rendered image from device to host
     rendered_array = wp.to_torch(rendered_image).cpu().numpy()
     
-    # Check if the image has any non-background pixels
-    bg_color = background
-    non_bg_pixels = np.sum(np.any(np.abs(rendered_array - bg_color) > 0.01, axis=2))
-    total_pixels = args.width * args.height
-    print(f"Image statistics: {non_bg_pixels} / {total_pixels} non-background pixels ({non_bg_pixels/total_pixels*100:.2f}%)")
-    
     # Display and save using matplotlib
     plt.figure(figsize=(10, 10))
     plt.imshow(rendered_array)
     plt.axis('off')
-    plt.savefig(args.output, bbox_inches='tight', dpi=150)
-    print(f"Rendered image saved to {args.output}")
+    plt.savefig("example_render.png", bbox_inches='tight', dpi=150)
+    print("Rendered image saved to example_render.png")
 

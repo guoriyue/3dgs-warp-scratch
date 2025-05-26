@@ -243,6 +243,7 @@ def compute_image_gradients(rendered, target, lambda_dssim=0.2):
     # TODO: Add SSIM gradient
     return pixel_grad
 
+
 @wp.kernel
 def depth_loss_kernel(
     rendered_depth: wp.array2d(dtype=float),

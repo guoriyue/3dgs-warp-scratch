@@ -141,13 +141,6 @@ class NeRFGaussianSplattingTrainer:
             inputs=[positions, scales, rotations, opacities, shs, self.num_points, self.config['initial_scale']]
         )
         
-        np.random.seed(42)
-        xyz = np.random.random((self.num_points, 3)) * 2.6 - 1.3
-        positions = wp.array(xyz, dtype=wp.vec3)
-        
-        scales = np.load("/Users/guomingfei/Desktop/warp-nerf-scratch/scales.npz")["scales"]
-        scales = wp.array(scales, dtype=wp.vec3)
-        
         # Return parameters as dictionary
         return {
             'positions': positions,

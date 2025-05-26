@@ -6,62 +6,6 @@ import os
 import warp as wp
 
 
-def load_ply(filename):
-    """
-    Load a PLY file containing 3D Gaussian point cloud data.
-    
-    Args:
-        filename: Path to the PLY file
-        
-    Returns:
-        Tuple of (points, scales, rotations, opacities, colors, shs)
-        where rotations are quaternions (x, y, z, w)
-    """
-    plydata = PlyData.read(filename)
-    verts = plydata['vertex'].data
-    
-    # Extract position data
-    points = np.stack([verts['x'], verts['y'], verts['z']], axis=-1).astype(np.float32)
-    
-    # Extract color data if available, otherwise use default
-    colors = np.stack([verts['red'], verts['green'], verts['blue']], axis=-1).astype(np.float32) / 255.0 if all(c in verts.dtype.names for c in ['red', 'green', 'blue']) else np.ones((points.shape[0], 3), dtype=np.float32) * 0.5
-    
-    # Extract opacity if available, otherwise use default
-    opacities = np.array(verts['opacity']).reshape(-1, 1).astype(np.float32) if 'opacity' in verts.dtype.names else np.ones((points.shape[0], 1), dtype=np.float32)
-    
-    # Extract spherical harmonic coefficients if available, otherwise use random values
-    shs = np.zeros((points.shape[0], 16, 3), dtype=np.float32)
-    if all(name in verts.dtype.names for name in ["f_dc_0", "f_dc_1", "f_dc_2"]):
-        shs[:, 0, 0] = verts["f_dc_0"]
-        shs[:, 0, 1] = verts["f_dc_1"]
-        shs[:, 0, 2] = verts["f_dc_2"]
-        rest_fields = [name for name in verts.dtype.names if name.startswith("f_rest_")]
-        if rest_fields:
-            rest_fields = sorted(rest_fields, key=lambda x: int(x.split('_')[-1]))
-            for i, field in enumerate(rest_fields):
-                sh_idx = i // 3 + 1
-                color_idx = i % 3
-                shs[:, sh_idx, color_idx] = verts[field]
-    else:
-        shs = np.random.random((points.shape[0], 16, 3)).astype(np.float32)
-    
-    # Extract scale information if available, otherwise use default
-    scales = np.stack([verts["scale_0"], verts["scale_1"], verts["scale_2"]], axis=-1).astype(np.float32) if all(f"scale_{i}" in verts.dtype.names for i in range(3)) else np.ones((points.shape[0], 3), dtype=np.float32)
-    
-    # Check for rotation format:
-    # First check if quaternion components exist
-    if all(comp in verts.dtype.names for comp in ['rot_x', 'rot_y', 'rot_z', 'rot_w']):
-        # Quaternion format (x, y, z, w)
-        rotations = np.stack([verts['rot_x'], verts['rot_y'], verts['rot_z'], verts['rot_w']], axis=-1).astype(np.float32)
-    else:
-        # Default to identity quaternion (0, 0, 0, 1)
-        rotations = np.zeros((points.shape[0], 4), dtype=np.float32)
-        rotations[:, 3] = 1.0  # Set w component to 1.0
-        
-    return points, scales, rotations, opacities, colors, shs
-
-
-
 # Function to save point cloud to PLY file
 def save_ply(params, filepath, num_points, colors=None):
     # Get numpy arrays
@@ -154,12 +98,3 @@ def save_ply(params, filepath, num_points, colors=None):
     PlyData([el], text=False).write(filepath)
     print(f"Point cloud saved to {filepath}")
     
-    
-
-
-def load_gaussians_from_path(input_path):
-    """Load Gaussian data from the specified path"""
-    if input_path.endswith('.ply'):
-        return load_ply(input_path)
-    else:
-        raise ValueError(f"Unsupported input path format: {input_path}")
