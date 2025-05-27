@@ -1,38 +1,0 @@
-/Users/guomingfei/Desktop/warp-nerf-scratch/train.py:241: DeprecationWarning: Starting with ImageIO v3 the behavior of this function will switch to that of iio.v3.imread. To keep the current behavior (and make this warning disappear) use `import imageio.v2 as imageio` or call `imageio.v2.imread` directly.
-  img = imageio.imread(first_img_path)
-Warp 1.7.0 initialized:
-   CUDA not enabled in this build
-   Devices:
-     "cpu"      : "arm"
-   Kernel cache:
-     /Users/guomingfei/Library/Caches/warp/1.7.0
-Loading NeRF dataset from data/nerf_synthetic/lego
-Using image dimensions from dataset: 800x800
-Using image dimensions from dataset: 800x800
-Using image dimensions from dataset: 800x800
-Loaded 100 train cameras and 100 train images
-Loaded 100 val cameras and 100 val images
-Loaded 200 test cameras and 200 test images
-Calculated scene extent: 4.729225158691406
-Module __main__ f654f96 load on device 'cpu' took 0.97 ms  (cached)
-  0%|          | 0/7000 [00:00<?, ?it/s]/Users/guomingfei/Desktop/warp-nerf-scratch/train.py:287: DeprecationWarning: Starting with ImageIO v3 the behavior of this function will switch to that of iio.v3.imread. To keep the current behavior (and make this warning disappear) use `import imageio.v2 as imageio` or call `imageio.v2.imread` directly.
-  img = imageio.imread(path)
-  0%|          | 1/7000 [00:04<9:34:46,  4.93s/it]Loss: 0.417075:   0%|          | 1/7000 [00:04<9:34:46,  4.93s/it]Loss: 0.417075:   0%|          | 2/7000 [00:09<8:53:32,  4.57s/it]Loss: 0.180557:   0%|          | 2/7000 [00:09<8:53:32,  4.57s/it]Loss: 0.180557:   0%|          | 3/7000 [00:11<7:00:45,  3.61s/it]Loss: 0.154319:   0%|          | 3/7000 [00:11<7:00:45,  3.61s/it]Loss: 0.154319:   0%|          | 3/7000 [00:12<8:20:43,  4.29s/it]
-Module forward 07fbdd7 load on device 'cpu' took 0.68 ms  (cached)
-[it 00000] dup=642830 r_med= 86.0  α∈[0.000,0.100,0.100] visible=4662/5000
-Module loss a9648b5 load on device 'cpu' took 0.79 ms  (cached)
-Module backward e42c09e load on device 'cpu' took 1.18 ms  (cached)
-Iteration 0: Resetting opacities
-Point cloud saved to output/point_cloud/iteration_0/point_cloud.ply
-Traceback (most recent call last):
-  File "/Users/guomingfei/Desktop/warp-nerf-scratch/train.py", line 996, in <module>
-    main()
-  File "/Users/guomingfei/Desktop/warp-nerf-scratch/train.py", line 992, in main
-    trainer.train()
-  File "/Users/guomingfei/Desktop/warp-nerf-scratch/train.py", line 844, in train
-    rendered_image, depth_image, self.intermediate_buffers = render_gaussians(
-  File "/Users/guomingfei/Desktop/warp-nerf-scratch/forward.py", line 755, in render_gaussians
-    wp.launch(
-  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/warp/context.py", line 5773, in launch
-    hooks.forward(*params)
-KeyboardInterrupt
