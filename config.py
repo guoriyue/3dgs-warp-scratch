@@ -23,6 +23,7 @@ TILE_M = wp.constant(16)
 TILE_N = wp.constant(16)
 TILE_THREADS = wp.constant(256)
 
+
 class GaussianParams:
     """Parameters for 3D Gaussian Splatting."""
 
@@ -35,6 +36,17 @@ class GaussianParams:
     lr_sh = 2e-3
     lr_opac = 5e-3
     num_points = 5000 # Initial number of Gaussian points
+
+    # Simple learning rate scheduler configuration
+    use_lr_scheduler = True
+    lr_scheduler_config = {
+        'lr_pos': 1e-2,      # Initial learning rate for positions
+        'lr_scale': 5e-3,    # Initial learning rate for scales  
+        'lr_rot': 5e-3,      # Initial learning rate for rotations
+        'lr_sh': 2e-3,       # Initial learning rate for spherical harmonics
+        'lr_opac': 5e-3,     # Initial learning rate for opacities
+        'final_lr_factor': 0.01  # Final LR will be 1% of initial LR
+    }
 
     # Optimization parameters
     densification_interval = 100  # Perform densification every N iterations
@@ -50,7 +62,6 @@ class GaussianParams:
     start_prune_iter = 500
     end_prune_iter = 15000
     percent_dense = 0.01
-
 
     # Gaussian parameters
     initial_scale = 0.1  # Initial scale for Gaussian points
@@ -73,6 +84,7 @@ class GaussianParams:
     near = 0.01  # Default near clipping plane
     far = 100.0  # Default far clipping plane
 
+  
     @classmethod
     def get_depth_l1_weight(cls, step):
         """Compute the depth L1 loss weight for the current step.
@@ -144,5 +156,7 @@ class GaussianParams:
             'cull_opacity_threshold': cls.cull_opacity_threshold,
             'start_prune_iter': cls.start_prune_iter,
             'end_prune_iter': cls.end_prune_iter,
+            'use_lr_scheduler': cls.use_lr_scheduler,
+            'lr_scheduler_config': cls.lr_scheduler_config,
         }
 

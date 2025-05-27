@@ -17,6 +17,7 @@ from config import *
 from utils.camera_utils import load_camera
 from utils.point_cloud_utils import save_ply
 from loss import l1_loss, compute_image_gradients
+from scheduler import LRScheduler
 
 # Initialize Warp
 wp.init()
@@ -102,6 +103,19 @@ class NeRFGaussianSplattingTrainer:
         if config is not None:
             self.config.update(config)
             
+        # Initialize learning rate scheduler
+        self.lr_scheduler = self.create_lr_scheduler()
+        print(f"Learning rate scheduler: {'Enabled' if self.lr_scheduler else 'Disabled'}")
+        
+        # For tracking learning rates 
+        self.learning_rate_history = {
+            'positions': [],
+            'scales': [], 
+            'rotations': [],
+            'shs': [],
+            'opacities': []
+        }
+            
         # Load NeRF dataset
         print(f"Loading NeRF dataset from {self.dataset_path}")
         self.cameras, self.image_paths = self.load_nerf_data("train")
@@ -138,6 +152,24 @@ class NeRFGaussianSplattingTrainer:
         # Track iteration for opacity reset
         self.opacity_reset_at = -32768
     
+    def create_lr_scheduler(self):
+        """Create simple learning rate schedulers for each parameter type."""
+        if not self.config['use_lr_scheduler']:
+            return None
+        
+        config = self.config['lr_scheduler_config']
+        final_factor = config['final_lr_factor']
+        
+        schedulers = {
+            'positions': LRScheduler(config['lr_pos'], final_factor),
+            'scales': LRScheduler(config['lr_scale'], final_factor),
+            'rotations': LRScheduler(config['lr_rot'], final_factor),
+            'shs': LRScheduler(config['lr_sh'], final_factor),
+            'opacities': LRScheduler(config['lr_opac'], final_factor)
+        }
+        
+        return schedulers
+
     def initialize_parameters(self):
         """Initialize Gaussian parameters."""
         positions = wp.zeros(self.num_points, dtype=wp.vec3)
@@ -647,6 +679,38 @@ class NeRFGaussianSplattingTrainer:
         
     def optimizer_step(self, iteration):
         """Perform an Adam optimization step."""
+        
+        # Get learning rates from scheduler or use config defaults
+        if self.lr_scheduler:
+            lr_pos = self.lr_scheduler['positions'].get_lr(iteration, self.config['num_iterations'])
+            lr_scale = self.lr_scheduler['scales'].get_lr(iteration, self.config['num_iterations'])
+            lr_rot = self.lr_scheduler['rotations'].get_lr(iteration, self.config['num_iterations'])
+            lr_sh = self.lr_scheduler['shs'].get_lr(iteration, self.config['num_iterations'])
+            lr_opac = self.lr_scheduler['opacities'].get_lr(iteration, self.config['num_iterations'])
+            
+            # Track learning rate history
+            self.learning_rate_history['positions'].append(lr_pos)
+            self.learning_rate_history['scales'].append(lr_scale)
+            self.learning_rate_history['rotations'].append(lr_rot)
+            self.learning_rate_history['shs'].append(lr_sh)
+            self.learning_rate_history['opacities'].append(lr_opac)
+            
+            # Log learning rates occasionally
+            if iteration % 1000 == 0:
+                print(f"Iteration {iteration} learning rates:")
+                print(f"  positions: {lr_pos:.6f}")
+                print(f"  scales: {lr_scale:.6f}")
+                print(f"  rotations: {lr_rot:.6f}")
+                print(f"  shs: {lr_sh:.6f}")
+                print(f"  opacities: {lr_opac:.6f}")
+        else:
+            # Use static learning rates from config
+            lr_pos = self.config['lr_pos']
+            lr_scale = self.config['lr_scale']
+            lr_rot = self.config['lr_rot']
+            lr_sh = self.config['lr_sh']
+            lr_opac = self.config['lr_opac']
+        
         wp.launch(
             adam_update,
             dim=self.num_points,
@@ -679,13 +743,13 @@ class NeRFGaussianSplattingTrainer:
                 self.adam_v['opacities'],
                 self.adam_v['shs'],
                 
-                # Optimizer parameters
+                # Optimizer parameters with dynamic learning rates
                 self.num_points,
-                self.config['lr_pos'],
-                self.config['lr_scale'],
-                self.config['lr_rot'],
-                self.config['lr_sh'],
-                self.config['lr_opac'],
+                lr_pos,    # Dynamic learning rate for positions
+                lr_scale,  # Dynamic learning rate for scales
+                lr_rot,    # Dynamic learning rate for rotations
+                lr_sh,     # Dynamic learning rate for SH coefficients
+                lr_opac,   # Dynamic learning rate for opacities
                 self.config['adam_beta1'],
                 self.config['adam_beta2'],
                 self.config['adam_epsilon'],
