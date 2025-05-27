@@ -18,7 +18,7 @@ Forget overly complex libraries with thousands of lines. This repo is intentiona
 
 ## Quick Start
 
-![The training video](lego_demo.mp4)
+![The training video](lego_demo.gif)
 
 
 ### Installation
