@@ -29,12 +29,6 @@ class GaussianParams:
 
     # Training parameters
     num_iterations = 7000  # Default number of training iterations
-    learning_rate = 0.0001  # Learning rate for Adam optimizer
-    lr_pos = 1e-2  # world-units
-    lr_scale = 5e-3
-    lr_rot = 5e-3
-    lr_sh = 2e-3
-    lr_opac = 5e-3
     num_points = 5000 # Initial number of Gaussian points
 
     # Simple learning rate scheduler configuration
@@ -57,11 +51,13 @@ class GaussianParams:
     adam_beta2 = 0.999  # Adam optimizer beta2 parameter
     adam_epsilon = 1e-8  # Adam optimizer epsilon parameter
     
+    
     densify_grad_threshold = 0.0002
     cull_opacity_threshold = 0.005
     start_prune_iter = 500
     end_prune_iter = 15000
     percent_dense = 0.01
+    max_allowed_prune_ratio = 1.0 # no limit on pruning ratio
 
     # Gaussian parameters
     initial_scale = 0.1  # Initial scale for Gaussian points
@@ -127,12 +123,6 @@ class GaussianParams:
         """Get parameters as a dictionary."""
         return {
             'num_iterations': cls.num_iterations,
-            'learning_rate': cls.learning_rate,
-            'lr_pos': cls.lr_pos,
-            'lr_scale': cls.lr_scale,
-            'lr_rot': cls.lr_rot,
-            'lr_sh': cls.lr_sh,
-            'lr_opac': cls.lr_opac,
             'num_points': cls.num_points,
             'densification_interval': cls.densification_interval,
             'pruning_interval': cls.pruning_interval,
@@ -158,5 +148,6 @@ class GaussianParams:
             'end_prune_iter': cls.end_prune_iter,
             'use_lr_scheduler': cls.use_lr_scheduler,
             'lr_scheduler_config': cls.lr_scheduler_config,
+            'max_allowed_prune_ratio': cls.max_allowed_prune_ratio,
         }
 
