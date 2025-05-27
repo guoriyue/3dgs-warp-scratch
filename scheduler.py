@@ -1,7 +1,11 @@
+"""
+Simple learning rate scheduler for 3D Gaussian Splatting.
+"""
+
 import math
 
 class LRScheduler:
-    """Simple exponential decay learning rate scheduler for all parameters."""
+    """Simple exponential decay learning rate scheduler."""
     
     def __init__(self, initial_lr, final_lr_factor=0.01):
         """

@@ -53,7 +53,7 @@ class GaussianParams:
     
     
     densify_grad_threshold = 0.0002
-    cull_opacity_threshold = 0.01
+    cull_opacity_threshold = 0.005
     start_prune_iter = 500
     end_prune_iter = 15000
     percent_dense = 0.01
