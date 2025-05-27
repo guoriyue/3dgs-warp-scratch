@@ -804,12 +804,13 @@ class NeRFGaussianSplattingTrainer:
             antialiasing=True,
             clamped=True
         )
-        plt.figure(figsize=(10, 10))
-        plt.imshow(wp.to_torch(rendered_image).cpu().numpy())
-        plt.title(f'Rendered View at Iteration {iteration}')
-        plt.axis('off')
-        plt.savefig(checkpoint_dir / "rendered_view.png")
-        plt.close()
+        # Save rendered view as image
+        rendered_array = wp.to_torch(rendered_image).cpu().numpy()
+        # Handle case where rendered_array has shape (3, H, W) - transpose to (H, W, 3)
+        if rendered_array.shape[0] == 3 and len(rendered_array.shape) == 3:
+            rendered_array = np.transpose(rendered_array, (1, 2, 0))
+        img8 = (np.clip(rendered_array, 0, 1) * 255).astype(np.uint8)
+        imageio.imwrite(checkpoint_dir / "rendered_view.png", img8)
         
 
     def debug_log_and_save_images(
