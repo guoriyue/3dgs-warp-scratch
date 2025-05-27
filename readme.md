@@ -5,17 +5,20 @@ A simple, educational implementation of 3D Gaussian Splatting using NVIDIA's War
 ## Why This Implementation?
 
 ✅ CPU & GPU with Zero Hassle
-Thanks to NVIDIA Warp, the same code runs seamlessly on both CPU and GPU — no need to deal with CUDA setup, driver issues, or device-specific kernels. Just change one line in the config.
+
+- Thanks to NVIDIA Warp, the same code runs seamlessly on both CPU and GPU — no need to deal with CUDA setup, driver issues, or device-specific kernels. Just change one line in the config.
 
 🧠 Learn Modern Graphics the Easy Way
-Explore core concepts in differentiable rendering and parallel graphics programming — no need for expensive GPUs or thousands of lines of boilerplate.
+
+- Explore core concepts in differentiable rendering and parallel graphics programming — no need for expensive GPUs or thousands of lines of boilerplate.
 
 📦 Minimalist & Educational
-Forget overly complex libraries with thousands of lines. This repo is intentionally clean and easy to read — ideal for learning, experimenting, or building your own Gaussian Splatting variant.
+
+- Forget overly complex libraries with thousands of lines. This repo is intentionally clean and easy to read — ideal for learning, experimenting, or building your own Gaussian Splatting variant.
 
 ## Quick Start
 
-[The training video](lego_demo.mp4)
+![The training video](lego_demo.mp4)
 
 
 ### Installation
