@@ -47,10 +47,12 @@ class GaussianParams:
     densify_grad_threshold = 0.0002
     points_clone_split = 2
     cull_opacity_threshold = 0.005
-    min_valid_points = 3000
+    min_valid_points = 10000
     max_valid_points = 100000
-    start_prune_iter = 500
+    start_prune_iter = 1000
     end_prune_iter = 15000
+    max_allowed_prune_ratio = 0.2
+    
 
     # Gaussian parameters
     initial_scale = 0.1  # Initial scale for Gaussian points
@@ -146,6 +148,7 @@ class GaussianParams:
             'max_valid_points': cls.max_valid_points,
             'start_prune_iter': cls.start_prune_iter,
             'end_prune_iter': cls.end_prune_iter,
-            'points_clone_split': cls.points_clone_split
+            'points_clone_split': cls.points_clone_split,
+            'max_allowed_prune_ratio': cls.max_allowed_prune_ratio
         }
 

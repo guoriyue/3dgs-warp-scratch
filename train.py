@@ -346,14 +346,14 @@ class NeRFGaussianSplattingTrainer:
                     self.num_points
                 ]
             )
-
+            max_allowed = int(self.num_points * self.config['max_allowed_prune_ratio'])
             # Prefix sum to find new indices
             prefix_sum = wp.zeros_like(valid_mask)
             wp.utils.array_scan(valid_mask, prefix_sum, inclusive=False)
 
             valid_count = int(prefix_sum.numpy()[-1])
 
-            if valid_count > self.config['min_valid_points'] and valid_count < self.config['max_valid_points']:
+            if valid_count > self.config['min_valid_points'] and valid_count < self.config['max_valid_points'] and (self.num_points - valid_count) < max_allowed:
                 print(f"[Prune] Compacting from {self.num_points} → {valid_count} points")
 
                 # Allocate compacted output
@@ -593,10 +593,11 @@ class NeRFGaussianSplattingTrainer:
                     background=np.array(self.config['background_color'], dtype=np.float32),
                     means3D=self.params['positions'].numpy(),
                     colors=None,  # Use SH coefficients instead
-                    opacity=self.params['opacities'].numpy(),
-                    scales=self.params['scales'].numpy(),
-                    rotations=self.params['rotations'].numpy(),
-                    scale_modifier=self.config['scale_modifier'],
+        dG_ddelx = -gdx * con_o[0] - gdy * con_o[1]
+        dG_ddely = -gdy * con_o[2] - gdx * con_o[1]
+        print(dG_ddelx, dG_ddely)
+        exit()
+
                     viewmatrix=self.cameras[camera_idx]['world_to_camera'],
                     projmatrix=self.cameras[camera_idx]['full_proj_matrix'],
                     tan_fovx=self.cameras[camera_idx]['tan_fovx'],
