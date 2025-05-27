@@ -1092,26 +1092,6 @@ def backward(
     }
 
 @wp.kernel
-def mark_densify_candidates(
-    pos_grads: wp.array(dtype=wp.vec3),
-    scale_grads: wp.array(dtype=wp.vec3),
-    grad_threshold: float,
-    candidate_mask: wp.array(dtype=int),
-    num_points: int
-):
-    i = wp.tid()
-    if i >= num_points:
-        return
-
-    pos_mag = wp.length(pos_grads[i])
-    scale_mag = wp.length(scale_grads[i])
-
-    if pos_mag > grad_threshold or scale_mag > grad_threshold:
-        candidate_mask[i] = 1
-    else:
-        candidate_mask[i] = 0
-
-@wp.kernel
 def clone_gaussians(
     clone_mask: wp.array(dtype=int),
     prefix_sum: wp.array(dtype=int),
@@ -1128,8 +1108,6 @@ def clone_gaussians(
     out_rotations: wp.array(dtype=wp.vec4),
     out_opacities: wp.array(dtype=float),
     out_shs: wp.array(dtype=wp.vec3),
-
-    points_clone_split: int
 ):
     i = wp.tid()
     if i >= offset:
@@ -1144,28 +1122,26 @@ def clone_gaussians(
         out_shs[i * 16 + j] = shs[i * 16 + j]
 
     if clone_mask[i] == 1:
-        base_idx = prefix_sum[i] * points_clone_split + offset
+        base_idx = prefix_sum[i] + offset
         pos = positions[i]
         scale = scales[i]
         rot = rotations[i]
         opac = opacities[i]
 
-        for k in range(points_clone_split):
-            new_idx = base_idx + k
 
-            noise = wp.vec3(
-                wp.randf(wp.uint32(i * 3 * points_clone_split + k * 3)) * noise_scale,
-                wp.randf(wp.uint32(i * 3 * points_clone_split + k * 3 + 1)) * noise_scale,
-                wp.randf(wp.uint32(i * 3 * points_clone_split + k * 3 + 2)) * noise_scale
-            )
+        noise = wp.vec3(
+            wp.randf(wp.uint32(i * 3)) * noise_scale,
+            wp.randf(wp.uint32(i * 3 + 1)) * noise_scale,
+            wp.randf(wp.uint32(i * 3 + 2)) * noise_scale
+        )
 
-            out_positions[new_idx] = pos + noise
-            out_scales[new_idx] = scale
-            out_rotations[new_idx] = rot
-            out_opacities[new_idx] = opac
+        out_positions[base_idx] = pos + noise
+        out_scales[base_idx] = scale
+        out_rotations[base_idx] = rot
+        out_opacities[base_idx] = opac
 
-            for j in range(16):
-                out_shs[new_idx * 16 + j] = shs[i * 16 + j]
+        for j in range(16):
+            out_shs[base_idx * 16 + j] = shs[i * 16 + j]
 
 @wp.kernel
 def prune_gaussians(
@@ -1353,3 +1329,205 @@ def adam_update(
         # Use the helper function for element-wise sqrt and division
         denominator_sh = wp_vec3_sqrt(v_sh_corrected) + wp.vec3(epsilon, epsilon, epsilon)
         shs[idx] = shs[idx] - lr_sh * wp_vec3_div_element(m_sh_corrected, denominator_sh)
+
+@wp.kernel
+def update_densification_stats(
+    viewspace_grads: wp.array(dtype=wp.vec2),    # Gradients of 2D positions
+    visibility_filter: wp.array(dtype=int),      # Which Gaussians are visible
+    radii: wp.array(dtype=int),                  # 2D radii from forward pass
+    xyz_gradient_accum: wp.array(dtype=float),   # Accumulated gradient norms
+    denom: wp.array(dtype=float),                # Denominator for averaging
+    max_radii2D: wp.array(dtype=float),          # Max 2D radii seen so far
+    num_points: int
+):
+    """Update densification statistics after each iteration."""
+    i = wp.tid()
+    if i >= num_points:
+        return
+    
+    # Only update stats for visible Gaussians
+    if visibility_filter[i] == 1 and radii[i] > 0:
+        # Update max radii
+        radius_f = float(radii[i])
+        if radius_f > max_radii2D[i]:
+            max_radii2D[i] = radius_f
+        
+        # Compute gradient norm and accumulate
+        grad_norm = wp.sqrt(viewspace_grads[i][0] * viewspace_grads[i][0] + 
+                           viewspace_grads[i][1] * viewspace_grads[i][1])
+        xyz_gradient_accum[i] += grad_norm
+        denom[i] += 1.0
+
+
+@wp.kernel
+def reset_opacities(
+    opacities: wp.array(dtype=float),
+    max_opacity: float,
+    num_points: int
+):
+    """Reset opacities to prevent oversaturation."""
+    i = wp.tid()
+    if i >= num_points:
+        return
+    
+    # Reset opacity to a small value
+    opacities[i] = max_opacity
+
+@wp.kernel
+def reset_densification_stats(
+    xyz_gradient_accum: wp.array(dtype=float),
+    denom: wp.array(dtype=float),
+    max_radii2D: wp.array(dtype=float),
+    num_points: int
+):
+    """Reset densification statistics after parameter count changes."""
+    i = wp.tid()
+    if i >= num_points:
+        return
+    
+    xyz_gradient_accum[i] = 0.0
+    denom[i] = 0.0
+    max_radii2D[i] = 0.0
+
+
+@wp.kernel
+def compute_average_gradients(
+    xyz_gradient_accum: wp.array(dtype=float),
+    denom: wp.array(dtype=float),
+    avg_grads: wp.array(dtype=float),
+    num_points: int
+):
+    """Compute average gradients for densification decisions."""
+    i = wp.tid()
+    if i >= num_points:
+        return
+    
+    if denom[i] > 0.0:
+        avg_grads[i] = xyz_gradient_accum[i] / denom[i]
+    else:
+        avg_grads[i] = 0.0
+
+@wp.kernel
+def mark_split_candidates(
+    grads: wp.array(dtype=float),
+    scales: wp.array(dtype=wp.vec3),
+    grad_threshold: float,
+    scene_extent: float,
+    percent_dense: float,
+    split_mask: wp.array(dtype=int),
+    num_points: int
+):
+    """Mark large Gaussians with high gradients for splitting."""
+    i = wp.tid()
+    if i >= num_points:
+        return
+    
+    # Check if gradient exceeds threshold
+    high_grad = grads[i] >= grad_threshold
+    
+    # Check if Gaussian is large (max scale > threshold)
+    max_scale = wp.max(wp.max(scales[i][0], scales[i][1]), scales[i][2])
+    scale_threshold = percent_dense * scene_extent
+    large_gaussian = max_scale > scale_threshold
+    
+    # Mark for splitting if both conditions are met
+    if (high_grad and large_gaussian):
+        split_mask[i] = 1 
+    else:
+        split_mask[i] = 0
+
+@wp.kernel
+def mark_clone_candidates(
+    grads: wp.array(dtype=float),
+    scales: wp.array(dtype=wp.vec3),
+    grad_threshold: float,
+    scene_extent: float,
+    percent_dense: float,
+    clone_mask: wp.array(dtype=int),
+    num_points: int
+):
+    """Mark small Gaussians with high gradients for cloning."""
+    i = wp.tid()
+    if i >= num_points:
+        return
+    
+    # Check if gradient exceeds threshold
+    high_grad = grads[i] >= grad_threshold
+    
+    # Check if Gaussian is small (max scale <= threshold)
+    max_scale = wp.max(wp.max(scales[i][0], scales[i][1]), scales[i][2])
+    scale_threshold = percent_dense * scene_extent
+    small_gaussian = max_scale <= scale_threshold
+    
+    # Mark for cloning if both conditions are met
+    if (high_grad and small_gaussian):
+        clone_mask[i] = 1 
+    else:
+        clone_mask[i] = 0
+
+@wp.kernel
+def split_gaussians(
+    split_mask: wp.array(dtype=int),
+    prefix_sum: wp.array(dtype=int),
+    positions: wp.array(dtype=wp.vec3),
+    scales: wp.array(dtype=wp.vec3),
+    rotations: wp.array(dtype=wp.vec4),
+    opacities: wp.array(dtype=float),
+    shs: wp.array(dtype=wp.vec3),
+    N_split: int,
+    scale_factor: float,
+    offset: int,
+    out_positions: wp.array(dtype=wp.vec3),
+    out_scales: wp.array(dtype=wp.vec3),
+    out_rotations: wp.array(dtype=wp.vec4),
+    out_opacities: wp.array(dtype=float),
+    out_shs: wp.array(dtype=wp.vec3)
+):
+    """Split large Gaussians into multiple smaller ones."""
+    i = wp.tid()
+    
+    # Copy original Gaussians first
+    if i < len(positions):
+        out_positions[i] = positions[i]
+        out_scales[i] = scales[i]
+        out_rotations[i] = rotations[i]
+        out_opacities[i] = opacities[i]
+        
+        # Copy SH coefficients
+        for j in range(16):
+            out_shs[i * 16 + j] = shs[i * 16 + j]
+    
+    # Handle splits
+    if i >= len(positions):
+        return
+        
+    if split_mask[i] == 1:
+        # Find where to write new Gaussians
+        split_idx = prefix_sum[i]
+        
+        # Create N_split new Gaussians
+        for j in range(N_split):
+            new_idx = offset + split_idx * N_split + j
+            if new_idx < len(out_positions):
+                # Scale down the original Gaussian
+                scaled_scales = wp.vec3(
+                    scales[i][0] * scale_factor,
+                    scales[i][1] * scale_factor,
+                    scales[i][2] * scale_factor
+                )
+                
+                # Add small random offset for position
+                random_offset = wp.vec3(
+                    (wp.randf(wp.uint32(new_idx * 3)) - 0.5) * 0.01,
+                    (wp.randf(wp.uint32(new_idx * 3 + 1)) - 0.5) * 0.01,
+                    (wp.randf(wp.uint32(new_idx * 3 + 2)) - 0.5) * 0.01
+                )
+                
+                out_positions[new_idx] = positions[i] + random_offset
+                out_scales[new_idx] = scaled_scales
+                out_rotations[new_idx] = rotations[i]
+                out_opacities[new_idx] = opacities[i]
+                
+                # Copy SH coefficients
+                for k in range(16):
+                    out_shs[new_idx * 16 + k] = shs[i * 16 + k]

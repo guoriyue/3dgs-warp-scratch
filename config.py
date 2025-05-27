@@ -45,14 +45,11 @@ class GaussianParams:
     adam_epsilon = 1e-8  # Adam optimizer epsilon parameter
     
     densify_grad_threshold = 0.0002
-    points_clone_split = 2
     cull_opacity_threshold = 0.005
-    min_valid_points = 5000
-    max_valid_points = 100000
     start_prune_iter = 500
     end_prune_iter = 15000
-    max_allowed_prune_ratio = 0.5
-    
+    percent_dense = 0.01
+
 
     # Gaussian parameters
     initial_scale = 0.1  # Initial scale for Gaussian points
@@ -144,11 +141,7 @@ class GaussianParams:
             'depth_l1_delay_mult': cls.depth_l1_delay_mult,
             'densify_grad_threshold': cls.densify_grad_threshold,
             'cull_opacity_threshold': cls.cull_opacity_threshold,
-            'min_valid_points': cls.min_valid_points,
-            'max_valid_points': cls.max_valid_points,
             'start_prune_iter': cls.start_prune_iter,
             'end_prune_iter': cls.end_prune_iter,
-            'points_clone_split': cls.points_clone_split,
-            'max_allowed_prune_ratio': cls.max_allowed_prune_ratio
         }
 
