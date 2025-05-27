@@ -190,15 +190,19 @@ class NeRFGaussianSplattingTrainer:
         
         camera_positions = np.array(camera_positions)
         
-        # Calculate the extent as the maximum distance between any two cameras
-        max_extent = 0.0
-        for i in range(len(camera_positions)):
-            for j in range(i + 1, len(camera_positions)):
-                dist = np.linalg.norm(camera_positions[i] - camera_positions[j])
-                max_extent = max(max_extent, dist)
+        # Calculate the centroid of all camera positions
+        scene_center = np.mean(camera_positions, axis=0)
         
+        # Calculate the maximum distance from any camera to the scene center
+        max_distance_to_center = 0.0
+        for pos in camera_positions:
+            distance = np.linalg.norm(pos - scene_center)
+            max_distance_to_center = max(max_distance_to_center, distance)
+        
+        # The scene extent is the radius of the bounding sphere
         # Use default factor if extent is too small
-        return max(max_extent * self.config.get('camera_extent_factor', 1.0), 1.0)
+        extent = max_distance_to_center * self.config.get('camera_extent_factor', 1.0)
+        return max(extent, 1.0)
 
     def init_densification_state(self):
         """Initialize state tracking for densification."""
@@ -315,224 +319,276 @@ class NeRFGaussianSplattingTrainer:
         densification_interval = self.config.get('densification_interval', 100)
         opacity_reset_interval = self.config.get('opacity_reset_interval', 3000)
         
-        # Opacity reset
-        if (iteration % opacity_reset_interval == 0 or
-            iteration == densify_from_iter):
-            print(f"Iteration {iteration}: Resetting opacities")
-            wp.launch(
-                reset_opacities,
-                dim=self.num_points,
-                inputs=[
-                    self.params['opacities'],
-                    0.01,  # max_opacity
-                    self.num_points
-                ]
-            )
-        
         # Skip densification if outside iteration range
-        if iteration < densify_from_iter or iteration >= densify_until_iter:
-            return
-        
-        # Only densify at specified intervals
-        if iteration % densification_interval != 0:
-            return
+        if iteration > densify_from_iter and iteration < densify_until_iter and iteration % densification_interval == 0:
+            print(f"Iteration {iteration}: Performing sophisticated densification and pruning")
             
-        print(f"Iteration {iteration}: Performing sophisticated densification and pruning")
-        
-        # For simplified implementation, use position gradients as proxy for viewspace gradients
-        pos_grads = self.grads['positions']
-        avg_grads = wp.zeros(self.num_points, dtype=float, device=DEVICE)
-        
-        @wp.kernel
-        def compute_grad_norms(pos_grad: wp.array(dtype=wp.vec3),
-                              grad_norms: wp.array(dtype=float),
-                              num_points: int):
-            i = wp.tid()
-            if i >= num_points:
-                return
-            grad_norms[i] = wp.length(pos_grad[i])
-        
-        wp.launch(compute_grad_norms, dim=self.num_points,
-                 inputs=[pos_grads, avg_grads, self.num_points])
-        
-        # Configuration
-        grad_threshold = self.config.get('densify_grad_threshold', 0.0002)
-        percent_dense = self.config.get('percent_dense', 0.01)
-        
-        # --- Step 1: Clone small Gaussians with high gradients ---
-        clone_mask = wp.zeros(self.num_points, dtype=int, device=DEVICE)
-        wp.launch(
-            mark_clone_candidates,
-            dim=self.num_points,
-            inputs=[
-                avg_grads,
-                self.params['scales'],
-                grad_threshold,
-                self.scene_extent,
-                percent_dense,
-                clone_mask,
-                self.num_points
-            ]
-        )
-        
-        # Perform cloning
-        clone_prefix_sum = wp.zeros_like(clone_mask)
-        wp.utils.array_scan(clone_mask, clone_prefix_sum, inclusive=False)
-        total_to_clone = int(clone_prefix_sum.numpy()[-1])
-        
-        if total_to_clone > 0:
-            print(f"[Clone] Cloning {total_to_clone} small Gaussians")
-            N = self.num_points
-            new_N = N + total_to_clone
-            
-            # Allocate output arrays
-            out_params = {
-                'positions': wp.zeros(new_N, dtype=wp.vec3, device=DEVICE),
-                'scales': wp.zeros(new_N, dtype=wp.vec3, device=DEVICE),
-                'rotations': wp.zeros(new_N, dtype=wp.vec4, device=DEVICE),
-                'opacities': wp.zeros(new_N, dtype=float, device=DEVICE),
-                'shs': wp.zeros(new_N * 16, dtype=wp.vec3, device=DEVICE)
-            }
-            
-            # Clone Gaussians
-            wp.launch(
-                clone_gaussians,
-                dim=N,
-                inputs=[
-                    clone_mask,
-                    clone_prefix_sum,
-                    self.params['positions'],
-                    self.params['scales'],
-                    self.params['rotations'],
-                    self.params['opacities'],
-                    self.params['shs'],
-                    0.01,  # noise_scale
-                    N,     # offset
-                    out_params['positions'],
-                    out_params['scales'],
-                    out_params['rotations'],
-                    out_params['opacities'],
-                    out_params['shs']
-                ]
-            )
-            
-            # Update parameters and state
-            self.params = out_params
-            self.num_points = new_N
-            self.grads = self.create_gradient_arrays()
-            self.adam_m = self.create_gradient_arrays()
-            self.adam_v = self.create_gradient_arrays()
-        
-        # --- Step 2: Split large Gaussians with high gradients ---
-        split_mask = wp.zeros(self.num_points, dtype=int, device=DEVICE)
-        wp.launch(
-            mark_split_candidates,
-            dim=self.num_points,
-            inputs=[
-                avg_grads,
-                self.params['scales'],
-                grad_threshold,
-                self.scene_extent,
-                percent_dense,
-                split_mask,
-                self.num_points
-            ]
-        )
-        
-        # Perform splitting
-        split_prefix_sum = wp.zeros_like(split_mask)
-        wp.utils.array_scan(split_mask, split_prefix_sum, inclusive=False)
-        total_to_split = int(split_prefix_sum.numpy()[-1])
-        
-        if total_to_split > 0:
-            print(f"[Split] Splitting {total_to_split} large Gaussians")
-            N = self.num_points
-            N_split = 2  # Split each Gaussian into 2
-            new_N = N + total_to_split * N_split
-            
-            # Allocate output arrays
-            out_params = {
-                'positions': wp.zeros(new_N, dtype=wp.vec3, device=DEVICE),
-                'scales': wp.zeros(new_N, dtype=wp.vec3, device=DEVICE),
-                'rotations': wp.zeros(new_N, dtype=wp.vec4, device=DEVICE),
-                'opacities': wp.zeros(new_N, dtype=float, device=DEVICE),
-                'shs': wp.zeros(new_N * 16, dtype=wp.vec3, device=DEVICE)
-            }
-            
-            # Split Gaussians
-            wp.launch(
-                split_gaussians,
-                dim=N,
-                inputs=[
-                    split_mask,
-                    split_prefix_sum,
-                    self.params['positions'],
-                    self.params['scales'],
-                    self.params['rotations'],
-                    self.params['opacities'],
-                    self.params['shs'],
-                    N_split,  # Number of splits per Gaussian
-                    0.8,      # scale_factor
-                    N,        # offset
-                    out_params['positions'],
-                    out_params['scales'],
-                    out_params['rotations'],
-                    out_params['opacities'],
-                    out_params['shs']
-                ]
-            )
-            
-            # Update parameters and state
-            self.params = out_params
-            self.num_points = new_N
-            self.grads = self.create_gradient_arrays()
-            self.adam_m = self.create_gradient_arrays()
-            self.adam_v = self.create_gradient_arrays()
-            
-            # Remove original split Gaussians
-            prune_filter = wp.zeros(self.num_points, dtype=int, device=DEVICE)
+            # For simplified implementation, use position gradients as proxy for viewspace gradients
+            pos_grads = self.grads['positions']
+            avg_grads = wp.zeros(self.num_points, dtype=float, device=DEVICE)
             
             @wp.kernel
-            def mark_split_originals_for_removal(
-                split_mask: wp.array(dtype=int),
-                prune_filter: wp.array(dtype=int),
-                offset: int,
-                num_points: int
-            ):
+            def compute_grad_norms(pos_grad: wp.array(dtype=wp.vec3),
+                                grad_norms: wp.array(dtype=float),
+                                num_points: int):
                 i = wp.tid()
                 if i >= num_points:
                     return
-                if i < offset and split_mask[i] == 1:
-                    prune_filter[i] = 1  # Mark for removal
-                else:
-                    prune_filter[i] = 0  # Keep
+                grad_norms[i] = wp.length(pos_grad[i])
             
-            wp.launch(mark_split_originals_for_removal, dim=self.num_points,
-                     inputs=[split_mask, prune_filter, N, self.num_points])
+            wp.launch(compute_grad_norms, dim=self.num_points,
+                    inputs=[pos_grads, avg_grads, self.num_points])
             
-            # Invert mask to get valid mask
-            valid_mask = wp.zeros_like(prune_filter)
+            # Configuration
+            grad_threshold = self.config.get('densify_grad_threshold', 0.0002)
+            percent_dense = self.config.get('percent_dense', 0.01)
             
-            @wp.kernel
-            def invert_mask(prune: wp.array(dtype=int), valid: wp.array(dtype=int), n: int):
-                i = wp.tid()
-                if i >= n:
-                    return
-                valid[i] = 1 - prune[i]
+            # --- Step 1: Clone small Gaussians with high gradients ---
+            clone_mask = wp.zeros(self.num_points, dtype=int, device=DEVICE)
+            wp.launch(
+                mark_clone_candidates,
+                dim=self.num_points,
+                inputs=[
+                    avg_grads,
+                    self.params['scales'],
+                    grad_threshold,
+                    self.scene_extent,
+                    percent_dense,
+                    clone_mask,
+                    self.num_points
+                ]
+            )
             
-            wp.launch(invert_mask, dim=self.num_points, 
-                     inputs=[prune_filter, valid_mask, self.num_points])
+            # Perform cloning
+            clone_prefix_sum = wp.zeros_like(clone_mask)
+            wp.utils.array_scan(clone_mask, clone_prefix_sum, inclusive=False)
+            total_to_clone = int(clone_prefix_sum.numpy()[-1])
             
-            # Count valid points and compact
+            if total_to_clone > 0:
+                print(f"[Clone] Cloning {total_to_clone} small Gaussians")
+                N = self.num_points
+                new_N = N + total_to_clone
+                
+                # Allocate output arrays
+                out_params = {
+                    'positions': wp.zeros(new_N, dtype=wp.vec3, device=DEVICE),
+                    'scales': wp.zeros(new_N, dtype=wp.vec3, device=DEVICE),
+                    'rotations': wp.zeros(new_N, dtype=wp.vec4, device=DEVICE),
+                    'opacities': wp.zeros(new_N, dtype=float, device=DEVICE),
+                    'shs': wp.zeros(new_N * 16, dtype=wp.vec3, device=DEVICE)
+                }
+                
+                # Clone Gaussians
+                wp.launch(
+                    clone_gaussians,
+                    dim=N,
+                    inputs=[
+                        clone_mask,
+                        clone_prefix_sum,
+                        self.params['positions'],
+                        self.params['scales'],
+                        self.params['rotations'],
+                        self.params['opacities'],
+                        self.params['shs'],
+                        0.01,  # noise_scale
+                        N,     # offset
+                        out_params['positions'],
+                        out_params['scales'],
+                        out_params['rotations'],
+                        out_params['opacities'],
+                        out_params['shs']
+                    ]
+                )
+                
+                # Update parameters and state
+                self.params = out_params
+                self.num_points = new_N
+                self.grads = self.create_gradient_arrays()
+                self.adam_m = self.create_gradient_arrays()
+                self.adam_v = self.create_gradient_arrays()
+            
+            # --- Step 2: Split large Gaussians with high gradients ---
+            split_mask = wp.zeros(self.num_points, dtype=int, device=DEVICE)
+            wp.launch(
+                mark_split_candidates,
+                dim=self.num_points,
+                inputs=[
+                    avg_grads,
+                    self.params['scales'],
+                    grad_threshold,
+                    self.scene_extent,
+                    percent_dense,
+                    split_mask,
+                    self.num_points
+                ]
+            )
+            
+            # Perform splitting
+            split_prefix_sum = wp.zeros_like(split_mask)
+            wp.utils.array_scan(split_mask, split_prefix_sum, inclusive=False)
+            total_to_split = int(split_prefix_sum.numpy()[-1])
+            
+            if total_to_split > 0:
+                print(f"[Split] Splitting {total_to_split} large Gaussians")
+                N = self.num_points
+                N_split = 2  # Split each Gaussian into 2
+                new_N = N + total_to_split * N_split
+                
+                # Allocate output arrays
+                out_params = {
+                    'positions': wp.zeros(new_N, dtype=wp.vec3, device=DEVICE),
+                    'scales': wp.zeros(new_N, dtype=wp.vec3, device=DEVICE),
+                    'rotations': wp.zeros(new_N, dtype=wp.vec4, device=DEVICE),
+                    'opacities': wp.zeros(new_N, dtype=float, device=DEVICE),
+                    'shs': wp.zeros(new_N * 16, dtype=wp.vec3, device=DEVICE)
+                }
+                
+                # Split Gaussians
+                wp.launch(
+                    split_gaussians,
+                    dim=N,
+                    inputs=[
+                        split_mask,
+                        split_prefix_sum,
+                        self.params['positions'],
+                        self.params['scales'],
+                        self.params['rotations'],
+                        self.params['opacities'],
+                        self.params['shs'],
+                        N_split,  # Number of splits per Gaussian
+                        0.8,      # scale_factor
+                        N,        # offset
+                        out_params['positions'],
+                        out_params['scales'],
+                        out_params['rotations'],
+                        out_params['opacities'],
+                        out_params['shs']
+                    ]
+                )
+                
+                # Update parameters and state
+                self.params = out_params
+                self.num_points = new_N
+                self.grads = self.create_gradient_arrays()
+                self.adam_m = self.create_gradient_arrays()
+                self.adam_v = self.create_gradient_arrays()
+                
+                # Remove original split Gaussians
+                prune_filter = wp.zeros(self.num_points, dtype=int, device=DEVICE)
+                
+                @wp.kernel
+                def mark_split_originals_for_removal(
+                    split_mask: wp.array(dtype=int),
+                    prune_filter: wp.array(dtype=int),
+                    offset: int,
+                    num_points: int
+                ):
+                    i = wp.tid()
+                    if i >= num_points:
+                        return
+                    if i < offset and split_mask[i] == 1:
+                        prune_filter[i] = 1  # Mark for removal
+                    else:
+                        prune_filter[i] = 0  # Keep
+                
+                wp.launch(mark_split_originals_for_removal, dim=self.num_points,
+                        inputs=[split_mask, prune_filter, N, self.num_points])
+                
+                # Invert mask to get valid mask
+                valid_mask = wp.zeros_like(prune_filter)
+                
+                @wp.kernel
+                def invert_mask(prune: wp.array(dtype=int), valid: wp.array(dtype=int), n: int):
+                    i = wp.tid()
+                    if i >= n:
+                        return
+                    valid[i] = 1 - prune[i]
+                
+                wp.launch(invert_mask, dim=self.num_points, 
+                        inputs=[prune_filter, valid_mask, self.num_points])
+                
+                # Count valid points and compact
+                prefix_sum = wp.zeros_like(valid_mask)
+                wp.utils.array_scan(valid_mask, prefix_sum, inclusive=False)
+                valid_count = int(prefix_sum.numpy()[-1])
+                
+                if valid_count < self.num_points:
+                    print(f"[Split] Removing {self.num_points - valid_count} original split Gaussians")
+                    
+                    # Allocate compacted output
+                    compact_params = {
+                        'positions': wp.zeros(valid_count, dtype=wp.vec3, device=DEVICE),
+                        'scales': wp.zeros(valid_count, dtype=wp.vec3, device=DEVICE),
+                        'rotations': wp.zeros(valid_count, dtype=wp.vec4, device=DEVICE),
+                        'opacities': wp.zeros(valid_count, dtype=float, device=DEVICE),
+                        'shs': wp.zeros(valid_count * 16, dtype=wp.vec3, device=DEVICE)
+                    }
+                    
+                    wp.launch(
+                        compact_gaussians,
+                        dim=self.num_points,
+                        inputs=[
+                            valid_mask,
+                            prefix_sum,
+                            self.params['positions'],
+                            self.params['scales'],
+                            self.params['rotations'],
+                            self.params['opacities'],
+                            self.params['shs'],
+                            compact_params['positions'],
+                            compact_params['scales'],
+                            compact_params['rotations'],
+                            compact_params['opacities'],
+                            compact_params['shs']
+                        ]
+                    )
+                    
+                    # Update parameters and state
+                    self.params = compact_params
+                    self.num_points = valid_count
+                    self.grads = self.create_gradient_arrays()
+                    self.adam_m = self.create_gradient_arrays()
+                    self.adam_v = self.create_gradient_arrays()
+            
+            # --- Step 3: Enhanced Pruning ---
+            print(f"[Prune] Performing enhanced pruning")
+            
+            valid_mask = wp.zeros(self.num_points, dtype=int, device=DEVICE)
+            
+            # Use opacity-based pruning for now
+            wp.launch(
+                prune_gaussians,
+                dim=self.num_points,
+                inputs=[
+                    self.params['opacities'],
+                    self.config.get('cull_opacity_threshold', 0.005),
+                    valid_mask,
+                    self.num_points
+                ]
+            )
+            
+            # Count valid points
             prefix_sum = wp.zeros_like(valid_mask)
             wp.utils.array_scan(valid_mask, prefix_sum, inclusive=False)
             valid_count = int(prefix_sum.numpy()[-1])
             
-            if valid_count < self.num_points:
-                print(f"[Split] Removing {self.num_points - valid_count} original split Gaussians")
+            # Check pruning constraints
+            min_valid_points = self.config.get('min_valid_points', 1000)
+            max_valid_points = self.config.get('max_valid_points', 1000000)
+            max_prune_ratio = self.config.get('max_allowed_prune_ratio', 0.5)
+            
+            prune_count = self.num_points - valid_count
+            prune_ratio = prune_count / self.num_points if self.num_points > 0 else 0
+            
+            if (valid_count >= min_valid_points and 
+                valid_count <= max_valid_points and 
+                prune_ratio <= max_prune_ratio and
+                valid_count < self.num_points):
+                
+                print(f"[Prune] Compacting from {self.num_points} → {valid_count} points")
                 
                 # Allocate compacted output
-                compact_params = {
+                out_params = {
                     'positions': wp.zeros(valid_count, dtype=wp.vec3, device=DEVICE),
                     'scales': wp.zeros(valid_count, dtype=wp.vec3, device=DEVICE),
                     'rotations': wp.zeros(valid_count, dtype=wp.vec4, device=DEVICE),
@@ -551,95 +607,44 @@ class NeRFGaussianSplattingTrainer:
                         self.params['rotations'],
                         self.params['opacities'],
                         self.params['shs'],
-                        compact_params['positions'],
-                        compact_params['scales'],
-                        compact_params['rotations'],
-                        compact_params['opacities'],
-                        compact_params['shs']
+                        out_params['positions'],
+                        out_params['scales'],
+                        out_params['rotations'],
+                        out_params['opacities'],
+                        out_params['shs']
                     ]
                 )
                 
                 # Update parameters and state
-                self.params = compact_params
+                self.params = out_params
                 self.num_points = valid_count
                 self.grads = self.create_gradient_arrays()
                 self.adam_m = self.create_gradient_arrays()
                 self.adam_v = self.create_gradient_arrays()
-        
-        # --- Step 3: Enhanced Pruning ---
-        print(f"[Prune] Performing enhanced pruning")
-        
-        valid_mask = wp.zeros(self.num_points, dtype=int, device=DEVICE)
-        
-        # Use opacity-based pruning for now
-        wp.launch(
-            prune_gaussians,
-            dim=self.num_points,
-            inputs=[
-                self.params['opacities'],
-                self.config.get('cull_opacity_threshold', 0.005),
-                valid_mask,
-                self.num_points
-            ]
+            else:
+                print(f"[Prune] Skipping pruning: valid={valid_count}, ratio={prune_ratio:.3f}")
+
+                
+        # Opacity reset - updated logic to match reference implementation
+        background_is_white = all(c == 1.0 for c in self.config['background_color'])
+        should_reset_opacity = (
+            iteration % opacity_reset_interval == 0 or
+            (background_is_white and iteration == densify_from_iter)
         )
         
-        # Count valid points
-        prefix_sum = wp.zeros_like(valid_mask)
-        wp.utils.array_scan(valid_mask, prefix_sum, inclusive=False)
-        valid_count = int(prefix_sum.numpy()[-1])
-        
-        # Check pruning constraints
-        min_valid_points = self.config.get('min_valid_points', 1000)
-        max_valid_points = self.config.get('max_valid_points', 1000000)
-        max_prune_ratio = self.config.get('max_allowed_prune_ratio', 0.5)
-        
-        prune_count = self.num_points - valid_count
-        prune_ratio = prune_count / self.num_points if self.num_points > 0 else 0
-        
-        if (valid_count >= min_valid_points and 
-            valid_count <= max_valid_points and 
-            prune_ratio <= max_prune_ratio and
-            valid_count < self.num_points):
-            
-            print(f"[Prune] Compacting from {self.num_points} → {valid_count} points")
-            
-            # Allocate compacted output
-            out_params = {
-                'positions': wp.zeros(valid_count, dtype=wp.vec3, device=DEVICE),
-                'scales': wp.zeros(valid_count, dtype=wp.vec3, device=DEVICE),
-                'rotations': wp.zeros(valid_count, dtype=wp.vec4, device=DEVICE),
-                'opacities': wp.zeros(valid_count, dtype=float, device=DEVICE),
-                'shs': wp.zeros(valid_count * 16, dtype=wp.vec3, device=DEVICE)
-            }
-            
+        if should_reset_opacity:
+            print(f"Iteration {iteration}: Resetting opacities")
             wp.launch(
-                compact_gaussians,
+                reset_opacities,
                 dim=self.num_points,
                 inputs=[
-                    valid_mask,
-                    prefix_sum,
-                    self.params['positions'],
-                    self.params['scales'],
-                    self.params['rotations'],
                     self.params['opacities'],
-                    self.params['shs'],
-                    out_params['positions'],
-                    out_params['scales'],
-                    out_params['rotations'],
-                    out_params['opacities'],
-                    out_params['shs']
+                    0.01,  # max_opacity
+                    self.num_points
                 ]
             )
-            
-            # Update parameters and state
-            self.params = out_params
-            self.num_points = valid_count
-            self.grads = self.create_gradient_arrays()
-            self.adam_m = self.create_gradient_arrays()
-            self.adam_v = self.create_gradient_arrays()
-        else:
-            print(f"[Prune] Skipping pruning: valid={valid_count}, ratio={prune_ratio:.3f}")
-
+        
+        
     def optimizer_step(self, iteration):
         """Perform an Adam optimization step."""
         wp.launch(

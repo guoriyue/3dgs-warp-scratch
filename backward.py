@@ -1374,9 +1374,9 @@ def split_gaussians(
                 
                 # Add small random offset for position
                 random_offset = wp.vec3(
-                    (wp.randf(wp.uint32(new_idx * 3)) - 0.5) * 0.01,
-                    (wp.randf(wp.uint32(new_idx * 3 + 1)) - 0.5) * 0.01,
-                    (wp.randf(wp.uint32(new_idx * 3 + 2)) - 0.5) * 0.01
+                    ((wp.randf(wp.uint32(new_idx * 3))) * 2.0 - 1.0) * 0.01,
+                    ((wp.randf(wp.uint32(new_idx * 3 + 1))) * 2.0 - 1.0) * 0.01,
+                    ((wp.randf(wp.uint32(new_idx * 3 + 2))) * 2.0 - 1.0) * 0.01
                 )
                 
                 out_positions[new_idx] = positions[i] + random_offset

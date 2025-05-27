@@ -37,8 +37,9 @@ class GaussianParams:
     num_points = 5000 # Initial number of Gaussian points
 
     # Optimization parameters
-    densification_interval = 300  # Perform densification every N iterations
-    pruning_interval = 300  # Perform pruning every N iterations
+    densification_interval = 100  # Perform densification every N iterations
+    pruning_interval = 100  # Perform pruning every N iterations
+    opacity_reset_interval = 3000
     save_interval = 300  # Save checkpoint every N iterations
     adam_beta1 = 0.9  # Adam optimizer beta1 parameter
     adam_beta2 = 0.999  # Adam optimizer beta2 parameter
