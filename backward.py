@@ -1389,8 +1389,6 @@ def split_gaussians(
                     out_shs[new_idx * 16 + k] = shs[i * 16 + k]
 
 
-
-
 @wp.kernel
 def clone_gaussians(
     clone_mask: wp.array(dtype=int),
