@@ -46,6 +46,7 @@ bash download_example_data.sh
 python render.py
 ```
 You should see 3 Gaussian points like:
+
 <img src="examples/example_render.png" alt="this" width="300"/>
 
 ### Training
