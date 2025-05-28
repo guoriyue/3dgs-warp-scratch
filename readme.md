@@ -2,7 +2,7 @@
 
 3DGS implementation in NVIDIA Warp — clean, minimal, and runs on CPU or GPU.
 
-![The training video](examples/example_lego_train.gif)
+![The training video](examples/example_train_lego.gif)
 
 ## Why This Implementation?
 
@@ -45,7 +45,7 @@ bash download_example_data.sh
 # Render 3 Gaussian points – a minimalist example
 python render.py
 ```
-You should see 3 Gaussian points like ![this](examples/example_render.png)
+You should see 3 Gaussian points like <img src="examples/example_render.png" alt="this" width="300"/>
 
 ### Training
 
