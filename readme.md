@@ -1,6 +1,6 @@
 # 3D Gaussian Splatting with Nvidia Warp
 
-A simple, educational implementation of 3D Gaussian Splatting using NVIDIA's Warp framework for differentiable physics and rendering.
+3DGS implementation in NVIDIA Warp — clean, minimal, and runs on CPU or GPU.
 
 ![The training video](examples/example_lego_train.gif)
 
@@ -26,6 +26,9 @@ This isn’t another massive codebase. It’s a clean, hackable implementation b
 # Clone the repository
 git clone https://github.com/guoriyue/3dgs-warp-scratch.git
 cd 3dgs-warp-scratch
+
+# Install dependencies
+pip install warp-lang numpy matplotlib imageio tqdm plyfile torch
 ```
 
 ### Download Example Data

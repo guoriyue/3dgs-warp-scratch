@@ -2,7 +2,6 @@
 Configuration settings and constants for 3D Gaussian Splatting with NeRF datasets.
 """
 import warp as wp
-import torch
 import numpy as np
 import random
 
@@ -16,7 +15,6 @@ WP_INT = wp.int32
 WP_VEC2 = wp.vec2
 WP_VEC2H = wp.vec2h
 VEC6 = wp.types.vector(length=6, dtype=WP_FLOAT32)
-TORCH_FLOAT = torch.float32
 DEVICE = "cpu" # Use "cpu" or "cuda"
 
 TILE_M = wp.constant(16)
