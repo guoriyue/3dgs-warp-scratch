@@ -45,7 +45,8 @@ bash download_example_data.sh
 # Render 3 Gaussian points – a minimalist example
 python render.py
 ```
-You should see 3 Gaussian points like <img src="examples/example_render.png" alt="this" width="300"/>
+You should see 3 Gaussian points like:
+<img src="examples/example_render.png" alt="this" width="300"/>
 
 ### Training
 
