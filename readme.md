@@ -28,7 +28,7 @@ git clone https://github.com/guoriyue/3dgs-warp-scratch.git
 cd 3dgs-warp-scratch
 
 # Install dependencies
-pip install warp-lang numpy matplotlib imageio tqdm plyfile torch
+pip install warp-lang==1.7.0 numpy==1.26.4 matplotlib==3.9.2 imageio==2.34.1 tqdm==4.66.5 plyfile torch==2.6.0
 ```
 
 ### Download Example Data
