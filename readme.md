@@ -2,8 +2,6 @@
 
 3DGS implementation in NVIDIA Warp — clean, minimal, and runs on CPU or GPU.
 
-![The training video](examples/example_train_lego.gif)
-
 ## Why This Implementation?
 
 ### ✅ CPU & GPU with Zero Hassle
@@ -17,6 +15,9 @@ Explore core concepts in differentiable rendering and parallel graphics programm
 ### 📦 Minimalist & Educational
 
 This isn’t another massive codebase. It’s a clean, hackable implementation built for clarity — perfect for study, prototyping, or teaching yourself how Gaussian Splatting works.
+
+
+![The training video](examples/example_train_lego.gif)
 
 ## Quick Start
 
@@ -88,5 +89,5 @@ Densification and pruning logic is based on [yzslab/gaussian-splatting-lightning
 
 ## TODO
 
-- Improve performance: This implementation focuses on correctness and clarity over speed; there's room for Warp kernel optimization.
+- Improve performance — This implementation focuses on correctness and clarity over speed; there's room for Warp kernel optimization.
 - Filter inactive points — The saved .ply files include many points that do not contribute to rendering. A better pruning strategy or visibility check is needed.
