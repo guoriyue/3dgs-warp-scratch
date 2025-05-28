@@ -91,3 +91,9 @@ Densification and pruning logic is based on [yzslab/gaussian-splatting-lightning
 
 - Improve performance — This implementation focuses on correctness and clarity over speed; there's room for Warp kernel optimization.
 - Filter inactive points — The saved .ply files include many points that do not contribute to rendering. A better pruning strategy or visibility check is needed.
+
+
+## License
+
+This project is licensed under the **GNU Affero General Public License v3.0**.  
+See the [LICENSE](./LICENSE) file for details.
