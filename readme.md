@@ -2,6 +2,8 @@
 
 A simple, educational implementation of 3D Gaussian Splatting using NVIDIA's Warp framework for differentiable physics and rendering.
 
+![The training video](examples/lego_demo.gif)
+
 ## Why This Implementation?
 
 ### ✅ CPU & GPU with Zero Hassle
@@ -17,9 +19,6 @@ Explore core concepts in differentiable rendering and parallel graphics programm
 Forget overly complex libraries with thousands of lines. This repo is intentionally clean and easy to read — ideal for learning, experimenting, or building your own Gaussian Splatting variant.
 
 ## Quick Start
-
-![The training video](lego_demo.gif)
-
 
 ### Installation
 
@@ -46,7 +45,7 @@ bash download_example_data.sh
 # Render 3 Gaussian points – a minimalist example
 python render.py
 ```
-You should see output similar to `example_render_.png`.
+You should see output ![The training video](examples/example_render.png)
 
 ### Training
 
