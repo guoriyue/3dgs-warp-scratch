@@ -1,12 +1,12 @@
-# 3D Gaussian Splatting with Nvidia Warp
+# 3D Gaussian Splatting in Python with NVIDIA Warp
 
-3DGS implementation in NVIDIA Warp — clean, minimal, and runs on CPU or GPU.
+This project reimplements the core ideas of 3D Gaussian Splatting in a clean, minimalist Python codebase using NVIDIA Warp. It runs on both CPU and GPU with no CUDA setup, focuses on clarity and parallelism, and is designed as a practical entry point for learning modern graphics and differentiable rendering.
 
 ## Why This Implementation?
 
 ### ✅ CPU & GPU with Zero Hassle
 
-Built with NVIDIA Warp, the same code runs seamlessly on both CPU and GPU — no need to deal with CUDA setup, driver issues, or device-specific kernels. Just flip one config line.
+Thanks to Warp, the same kernel code runs seamlessly on both CPU and GPU — no need to deal with CUDA setup, driver issues, or device-specific kernels. Just flip one config line.
 
 ### 🧠 Learn Modern Graphics the Easy Way
 
