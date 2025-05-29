@@ -43,18 +43,18 @@ def dnormvdv(v: wp.vec3, dv: wp.vec3) -> wp.vec3:
 @wp.kernel
 def sh_backward_kernel(
     # --- Inputs ---
-    num_points: int,
-    degree: int, # SH degree used in forward
-    means: wp.array(dtype=wp.vec3),      # (N, 3)
-    shs: wp.array(dtype=wp.vec3),        # Flattened SH coeffs (N * 16, 3)
-    radii: wp.array(dtype=int),          # Radii computed in forward (N,) - used for skipping
-    campos: wp.vec3,                     # Camera position (3,)
-    clamped_state: wp.array(dtype=wp.vec3), # Clamping state {0,1} from forward pass (N, 3)
-    dL_dcolor: wp.array(dtype=wp.vec3),   # Grad L w.r.t. *final* gaussian color (N, 3)
+    num_points: int,                             # Number of Gaussian points
+    degree: int,                                 # SH degree used in forward
+    means: wp.array(dtype=wp.vec3),              # 3D positions (N, 3)
+    shs: wp.array(dtype=wp.vec3),                # Flattened SH coeffs (N * 16, 3)
+    radii: wp.array(dtype=int),                  # Radii computed in forward (N,) - used for skipping
+    campos: wp.vec3,                             # Camera position (3,)
+    clamped_state: wp.array(dtype=wp.vec3),      # Clamping state {0,1} from forward pass (N, 3)
+    dL_dcolor: wp.array(dtype=wp.vec3),          # Grad L w.r.t. *final* gaussian color (N, 3)
 
     # --- Outputs (Accumulate) ---
-    dL_dmeans: wp.array(dtype=wp.vec3), # Accumulate mean grads here (N, 3)
-    dL_dshs: wp.array(dtype=wp.vec3)   # Accumulate SH grads here (N * 16, 3)
+    dL_dmeans: wp.array(dtype=wp.vec3),          # Accumulate mean grads here (N, 3)
+    dL_dshs: wp.array(dtype=wp.vec3)             # Accumulate SH grads here (N * 16, 3)
 ):
     idx = wp.tid()
     
@@ -76,8 +76,6 @@ def sh_backward_kernel(
     x = dir[0]; y = dir[1]; z = dir[2]
 
     # --- Apply clamping mask to input gradient ---
-    # In CUDA: dL_dRGB.x *= clamped[3 * idx + 0] ? 0 : 1;
-    # Here we use: 1.0 - clamped_state which gives 0 for clamped, 1 for not clamped
     dL_dRGB = dL_dcolor[idx]
     dL_dRGB = wp_vec3_mul_element(dL_dRGB, wp_vec3_add_element(wp.vec3(1.0, 1.0, 1.0), -1.0 * clamped_state[idx]))
 
@@ -209,35 +207,32 @@ def sh_backward_kernel(
                 )
 
     # --- Compute gradient w.r.t. view direction (dL/ddir) ---
-    # In CUDA: glm::vec3 dL_ddir(glm::dot(dRGBdx, dL_dRGB), glm::dot(dRGBdy, dL_dRGB), glm::dot(dRGBdz, dL_dRGB));
     dL_ddir = wp.vec3(wp.dot(dRGBdx, dL_dRGB),
                       wp.dot(dRGBdy, dL_dRGB),
                       wp.dot(dRGBdz, dL_dRGB))
 
     # --- Propagate gradient from direction to mean position (dL/dmean) ---
-    # In CUDA: float3 dL_dmean = dnormvdv(float3{ dir_orig.x, dir_orig.y, dir_orig.z }, float3{ dL_ddir.x, dL_ddir.y, dL_ddir.z });
     dL_dmeans_local = dnormvdv(dir_orig, dL_ddir)
 
     # --- Accumulate gradients to global arrays ---
-    # In CUDA: dL_dmeans[idx] += glm::vec3(dL_dmean.x, dL_dmean.y, dL_dmean.z);
     dL_dmeans[idx] += dL_dmeans_local
 
 
 @wp.kernel
 def compute_cov2d_backward_kernel(
     # --- Inputs ---
-    num_points: int,
-    means: wp.array(dtype=wp.vec3),         # (N, 3)
-    cov3Ds: wp.array(dtype=VEC6),           # Packed 3D cov (N, 6)
-    radii: wp.array(dtype=int),             # Radii computed in forward (N,) - used for skipping
-    h_x: float, h_y: float,                 # Focal lengths
-    tan_fovx: float, tan_fovy: float,
-    view_matrix: wp.mat44,                  # World->View matrix (4, 4)
-    dL_dconics: wp.array(dtype=wp.vec4),    # Grad L w.r.t. conic (a, b, c) (N, 3)
+    num_points: int,                             # Number of Gaussian points
+    means: wp.array(dtype=wp.vec3),              # 3D positions (N, 3)
+    cov3Ds: wp.array(dtype=VEC6),                # Packed 3D cov (N, 6)
+    radii: wp.array(dtype=int),                  # Radii computed in forward (N,) - used for skipping
+    h_x: float, h_y: float,                      # Focal lengths
+    tan_fovx: float, tan_fovy: float,            # Tangent of FOV
+    view_matrix: wp.mat44,                       # World->View matrix (4, 4)
+    dL_dconics: wp.array(dtype=wp.vec4),         # Grad L w.r.t. conic (a, b, c) (N, 3)
 
-    # --- Outputs (Accumulate/Write) ---
-    dL_dmeans: wp.array(dtype=wp.vec3), # Accumulate mean grads here (N, 3)
-    dL_dcov3Ds: wp.array(dtype=VEC6)   # Write 3D cov grads here (N, 6)
+    # --- Outputs (Accumulate) ---
+    dL_dmeans: wp.array(dtype=wp.vec3),          # Accumulate mean grads here (N, 3)
+    dL_dcov3Ds: wp.array(dtype=VEC6)             # Accumulate 3D cov grads here (N, 6)
 ):
     idx = wp.tid()
     if idx >= num_points or radii[idx] <= 0: # Skip if not rendered
@@ -356,16 +351,16 @@ def compute_cov2d_backward_kernel(
 @wp.kernel
 def compute_cov3d_backward_kernel(
     # --- Inputs ---
-    num_points: int,
-    scales: wp.array(dtype=wp.vec3),    # (N, 3)
-    rotations: wp.array(dtype=wp.vec4), # Quaternions (x, y, z, w) (N, 4)
-    radii: wp.array(dtype=int),         # Radii computed in forward (N,) - used for skipping
-    scale_modifier: float,
-    dL_dcov3Ds: wp.array(dtype=VEC6),   # Grad L w.r.t packed 3D cov (N, 6)
+    num_points: int,                             # Number of Gaussian points
+    scales: wp.array(dtype=wp.vec3),             # Scale parameters (N, 3)
+    rotations: wp.array(dtype=wp.vec4),          # Quaternions (x, y, z, w) (N, 4)
+    radii: wp.array(dtype=int),                  # Radii computed in forward (N,) - used for skipping
+    scale_modifier: float,                       # Global scale modifier
+    dL_dcov3Ds: wp.array(dtype=VEC6),            # Grad L w.r.t packed 3D cov (N, 6)
 
     # --- Outputs ---
-    dL_dscales: wp.array(dtype=wp.vec3), # Write scale grads here (N, 3)
-    dL_drots: wp.array(dtype=wp.vec4)   # Write rot grads here (N, 4)
+    dL_dscales: wp.array(dtype=wp.vec3),         # Write scale grads here (N, 3)
+    dL_drots: wp.array(dtype=wp.vec4)            # Write rot grads here (N, 4)
 ):
     idx = wp.tid()
     # Skip if not rendered OR if grad input is zero (e.g., from compute_cov2d_backward)
@@ -379,15 +374,12 @@ def compute_cov3d_backward_kernel(
     rot_quat = rotations[idx] # (x, y, z, w) in Warp
 
     # Extract quaternion components to match CUDA convention (r, x, y, z)
-    # In CUDA: r = q.x, x = q.y, y = q.z, z = q.w
-    # In Warp: x = q[0], y = q[1], z = q[2], r = q[3] (w)
     r = rot_quat[3]  # Real part is w in Warp
     x = rot_quat[0]
     y = rot_quat[1]
     z = rot_quat[2]
 
     # 1. Construct rotation matrix R manually as in CUDA
-    # This matches the CUDA implementation exactly
     R = wp.mat33(
         1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - r * z), 2.0 * (x * z + r * y),
         2.0 * (x * y + r * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - r * x),
@@ -440,7 +432,6 @@ def compute_cov3d_backward_kernel(
     )
 
     # 5. Gradients of loss w.r.t. quaternion components
-    # Following CUDA implementation exactly with the same indices
     dL_dr = 2.0 * (z * (dL_dMt_scaled[0, 1] - dL_dMt_scaled[1, 0]) + 
                    y * (dL_dMt_scaled[2, 0] - dL_dMt_scaled[0, 2]) + 
                    x * (dL_dMt_scaled[1, 2] - dL_dMt_scaled[2, 1]))
@@ -467,30 +458,30 @@ def compute_cov3d_backward_kernel(
 def wp_render_backward_kernel(
     # --- Inputs ---
     # Tile/Range data
-    ranges: wp.array(dtype=wp.vec2i),       # Range of point indices for each tile (start, end)
-    point_list: wp.array(dtype=int),        # Sorted point indices
+    ranges: wp.array(dtype=wp.vec2i),            # Range of point indices for each tile (start, end)
+    point_list: wp.array(dtype=int),             # Sorted point indices
     
     # Image parameters
-    W: int,                                 # Image width
-    H: int,                                 # Image height
-    bg_color: wp.vec3,                      # Background color
-    tile_grid: wp.vec3,
+    W: int,                                      # Image width
+    H: int,                                      # Image height
+    bg_color: wp.vec3,                           # Background color
+    tile_grid: wp.vec3,                          # Tile grid dimensions
     
     # Gaussian parameters
-    points_xy_image: wp.array(dtype=wp.vec2), # 2D projected positions
-    conic_opacity: wp.array(dtype=wp.vec4),   # Conic matrices and opacities (a, b, c, opacity)
-    colors: wp.array(dtype=wp.vec3),          # RGB colors
+    points_xy_image: wp.array(dtype=wp.vec2),    # 2D projected positions
+    conic_opacity: wp.array(dtype=wp.vec4),      # Conic matrices and opacities (a, b, c, opacity)
+    colors: wp.array(dtype=wp.vec3),             # RGB colors
     
     # Forward pass results
-    final_Ts: wp.array2d(dtype=float),      # Final transparency values
-    n_contrib: wp.array2d(dtype=int),       # Number of Gaussians contributing to each pixel
-    dL_dpixels: wp.array2d(dtype=wp.vec3),  # Gradient of loss w.r.t. output pixels
+    final_Ts: wp.array2d(dtype=float),           # Final transparency values
+    n_contrib: wp.array2d(dtype=int),            # Number of Gaussians contributing to each pixel
+    dL_dpixels: wp.array2d(dtype=wp.vec3),       # Gradient of loss w.r.t. output pixels
     
     # --- Outputs ---
-    dL_dmean2D: wp.array(dtype=wp.vec3),    # Gradient w.r.t. 2D mean positions
-    dL_dconic2D: wp.array(dtype=wp.vec4),   # Gradient w.r.t. conic matrices
-    dL_dopacity: wp.array(dtype=float),     # Gradient w.r.t. opacity
-    dL_dcolors: wp.array(dtype=wp.vec3),    # Gradient w.r.t. colors
+    dL_dmean2D: wp.array(dtype=wp.vec3),         # Gradient w.r.t. 2D mean positions
+    dL_dconic2D: wp.array(dtype=wp.vec4),        # Gradient w.r.t. conic matrices
+    dL_dopacity: wp.array(dtype=float),          # Gradient w.r.t. opacity
+    dL_dcolors: wp.array(dtype=wp.vec3),         # Gradient w.r.t. colors
 ):
     """
     Backward version of the rendering procedure, computing gradients of the loss with respect
@@ -618,14 +609,14 @@ def wp_render_backward_kernel(
 @wp.kernel
 def compute_projection_backward_kernel(
     # --- Inputs ---
-    num_points: int,
-    means: wp.array(dtype=wp.vec3),      # (N, 3) 3D positions
-    radii: wp.array(dtype=int),          # Radii computed in forward (N,) - used for skipping
-    proj_matrix: wp.mat44,               # Projection matrix (4, 4)
-    dL_dmean2D: wp.array(dtype=wp.vec3), # Grad of loss w.r.t. 2D projected means (N, 2)
+    num_points: int,                             # Number of Gaussian points
+    means: wp.array(dtype=wp.vec3),              # 3D positions (N, 3)
+    radii: wp.array(dtype=int),                  # Radii computed in forward (N,) - used for skipping
+    proj_matrix: wp.mat44,                       # Projection matrix (4, 4)
+    dL_dmean2D: wp.array(dtype=wp.vec3),         # Grad of loss w.r.t. 2D projected means (N, 2)
     
     # --- Outputs (Accumulate) ---
-    dL_dmeans: wp.array(dtype=wp.vec3) # Accumulate mean grads here (N, 3)
+    dL_dmeans: wp.array(dtype=wp.vec3)           # Accumulate mean grads here (N, 3)
 ):
     """Compute gradients of 3D means due to projection to 2D.
     
@@ -1090,400 +1081,3 @@ def backward(
         'dL_dconic': dL_dconic,
         'dL_dcov3D': dL_dcov3D
     }
-
-@wp.kernel
-def adam_update(
-    # Parameters
-    positions: wp.array(dtype=wp.vec3),
-    scales: wp.array(dtype=wp.vec3),
-    rotations: wp.array(dtype=wp.vec4),
-    opacities: wp.array(dtype=float),
-    shs: wp.array(dtype=wp.vec3),
-    
-    # Gradients
-    pos_grads: wp.array(dtype=wp.vec3),
-    scale_grads: wp.array(dtype=wp.vec3),
-    rot_grads: wp.array(dtype=wp.vec4),
-    opacity_grads: wp.array(dtype=float),
-    sh_grads: wp.array(dtype=wp.vec3),
-    
-    # First moments (m)
-    m_positions: wp.array(dtype=wp.vec3),
-    m_scales: wp.array(dtype=wp.vec3),
-    m_rotations: wp.array(dtype=wp.vec4),
-    m_opacities: wp.array(dtype=float),
-    m_shs: wp.array(dtype=wp.vec3),
-    
-    # Second moments (v)
-    v_positions: wp.array(dtype=wp.vec3),
-    v_scales: wp.array(dtype=wp.vec3),
-    v_rotations: wp.array(dtype=wp.vec4),
-    v_opacities: wp.array(dtype=float),
-    v_shs: wp.array(dtype=wp.vec3),
-    
-    num_points: int,
-    lr_pos: float,
-    lr_scale: float,
-    lr_rot: float,
-    lr_opac: float,
-    lr_sh: float,
-    beta1: float,
-    beta2: float,
-    epsilon: float,
-    iteration: int
-):
-    i = wp.tid()
-    if i >= num_points:
-        return
-    
-    # Bias correction terms
-    bias_correction1 = 1.0 - wp.pow(beta1, float(iteration + 1))
-    bias_correction2 = 1.0 - wp.pow(beta2, float(iteration + 1))
-    
-    # Update positions
-    m_positions[i] = beta1 * m_positions[i] + (1.0 - beta1) * pos_grads[i]
-    # Use the helper function for element-wise multiplication
-    v_positions[i] = beta2 * v_positions[i] + (1.0 - beta2) * wp_vec3_mul_element(pos_grads[i], pos_grads[i])
-    # Use distinct names for corrected moments per parameter type
-    m_pos_corrected = m_positions[i] / bias_correction1
-    v_pos_corrected = v_positions[i] / bias_correction2
-    # Use the helper function for element-wise sqrt and division
-    denominator_pos = wp_vec3_sqrt(v_pos_corrected) + wp.vec3(epsilon, epsilon, epsilon)
-    positions[i] = positions[i] - lr_pos * wp_vec3_div_element(m_pos_corrected, denominator_pos)
-    
-    # Update scales (with some constraints to keep them positive)
-    m_scales[i] = beta1 * m_scales[i] + (1.0 - beta1) * scale_grads[i]
-    # Use the helper function for element-wise multiplication
-    v_scales[i] = beta2 * v_scales[i] + (1.0 - beta2) * wp_vec3_mul_element(scale_grads[i], scale_grads[i])
-    # Use distinct names for corrected moments per parameter type
-    m_scale_corrected = m_scales[i] / bias_correction1
-    v_scale_corrected = v_scales[i] / bias_correction2
-    # Use the helper function for element-wise sqrt and division
-    denominator_scale = wp_vec3_sqrt(v_scale_corrected) + wp.vec3(epsilon, epsilon, epsilon)
-    scale_update = lr_scale * wp_vec3_div_element(m_scale_corrected, denominator_scale)
-    scales[i] = wp.vec3(
-        wp.max(scales[i][0] - scale_update[0], 0.001),
-        wp.max(scales[i][1] - scale_update[1], 0.001),
-        wp.max(scales[i][2] - scale_update[2], 0.001)
-    )
-    
-    # Update rotations
-    m_rotations[i] = beta1 * m_rotations[i] + (1.0 - beta1) * rot_grads[i]
-    # Element-wise multiplication for quaternions
-    v_rotations[i] = beta2 * v_rotations[i] + (1.0 - beta2) * wp.vec4(
-        rot_grads[i][0] * rot_grads[i][0],
-        rot_grads[i][1] * rot_grads[i][1],
-        rot_grads[i][2] * rot_grads[i][2],
-        rot_grads[i][3] * rot_grads[i][3]
-    )
-    m_rot_corrected = m_rotations[i] / bias_correction1
-    v_rot_corrected = v_rotations[i] / bias_correction2
-    # Element-wise sqrt and division for quaternions
-    denominator_rot = wp.vec4(
-        wp.sqrt(v_rot_corrected[0]) + epsilon,
-        wp.sqrt(v_rot_corrected[1]) + epsilon,
-        wp.sqrt(v_rot_corrected[2]) + epsilon,
-        wp.sqrt(v_rot_corrected[3]) + epsilon
-    )
-    rot_update = wp.vec4(
-        lr_rot * m_rot_corrected[0] / denominator_rot[0],
-        lr_rot * m_rot_corrected[1] / denominator_rot[1],
-        lr_rot * m_rot_corrected[2] / denominator_rot[2],
-        lr_rot * m_rot_corrected[3] / denominator_rot[3]
-    )
-    rotations[i] = rotations[i] - rot_update
-    
-    # Normalize quaternion to ensure it's a valid rotation
-    quat_length = wp.sqrt(rotations[i][0]*rotations[i][0] + 
-                         rotations[i][1]*rotations[i][1] + 
-                         rotations[i][2]*rotations[i][2] + 
-                         rotations[i][3]*rotations[i][3])
-    
-    if quat_length > 0.0:
-        rotations[i] = wp.vec4(
-            rotations[i][0] / quat_length,
-            rotations[i][1] / quat_length,
-            rotations[i][2] / quat_length,
-            rotations[i][3] / quat_length
-        )
-    
-    # Update opacity (with clamping to [0,1])
-    m_opacities[i] = beta1 * m_opacities[i] + (1.0 - beta1) * opacity_grads[i]
-    # Opacity is scalar, direct multiplication is fine
-    v_opacities[i] = beta2 * v_opacities[i] + (1.0 - beta2) * (opacity_grads[i] * opacity_grads[i])
-    # Use distinct names for corrected moments per parameter type
-    m_opacity_corrected = m_opacities[i] / bias_correction1
-    v_opacity_corrected = v_opacities[i] / bias_correction2
-    # Opacity is scalar, direct wp.sqrt is fine here
-    opacity_update = lr_opac * m_opacity_corrected / (wp.sqrt(v_opacity_corrected) + epsilon)
-    opacities[i] = wp.max(wp.min(opacities[i] - opacity_update, 1.0), 0.0)
-    
-    # Update SH coefficients
-    for j in range(16):
-        idx = i * 16 + j
-        m_shs[idx] = beta1 * m_shs[idx] + (1.0 - beta1) * sh_grads[idx]
-        # Use the helper function for element-wise multiplication
-        v_shs[idx] = beta2 * v_shs[idx] + (1.0 - beta2) * wp_vec3_mul_element(sh_grads[idx], sh_grads[idx])
-        # Use distinct names for corrected moments per parameter type
-        m_sh_corrected = m_shs[idx] / bias_correction1
-        v_sh_corrected = v_shs[idx] / bias_correction2
-        # Use the helper function for element-wise sqrt and division
-        denominator_sh = wp_vec3_sqrt(v_sh_corrected) + wp.vec3(epsilon, epsilon, epsilon)
-        shs[idx] = shs[idx] - lr_sh * wp_vec3_div_element(m_sh_corrected, denominator_sh)
-
-
-@wp.kernel
-def reset_opacities(
-    opacities: wp.array(dtype=float),
-    max_opacity: float,
-    num_points: int
-):
-    """Reset opacities to prevent oversaturation."""
-    i = wp.tid()
-    if i >= num_points:
-        return
-    
-    # Reset opacity to a small value
-    opacities[i] = max_opacity
-
-@wp.kernel
-def reset_densification_stats(
-    xyz_gradient_accum: wp.array(dtype=float),
-    denom: wp.array(dtype=float),
-    max_radii2D: wp.array(dtype=float),
-    num_points: int
-):
-    """Reset densification statistics after parameter count changes."""
-    i = wp.tid()
-    if i >= num_points:
-        return
-    
-    xyz_gradient_accum[i] = 0.0
-    denom[i] = 0.0
-    max_radii2D[i] = 0.0
-
-
-@wp.kernel
-def mark_split_candidates(
-    grads: wp.array(dtype=float),
-    scales: wp.array(dtype=wp.vec3),
-    grad_threshold: float,
-    scene_extent: float,
-    percent_dense: float,
-    split_mask: wp.array(dtype=int),
-    num_points: int
-):
-    """Mark large Gaussians with high gradients for splitting."""
-    i = wp.tid()
-    if i >= num_points:
-        return
-    
-    # Check if gradient exceeds threshold
-    high_grad = grads[i] >= grad_threshold
-    
-    # Check if Gaussian is large (max scale > threshold)
-    max_scale = wp.max(wp.max(scales[i][0], scales[i][1]), scales[i][2])
-    scale_threshold = percent_dense * scene_extent
-    large_gaussian = max_scale > scale_threshold
-    
-    # Mark for splitting if both conditions are met
-    if (high_grad and large_gaussian):
-        split_mask[i] = 1 
-    else:
-        split_mask[i] = 0
-
-@wp.kernel
-def mark_clone_candidates(
-    grads: wp.array(dtype=float),
-    scales: wp.array(dtype=wp.vec3),
-    grad_threshold: float,
-    scene_extent: float,
-    percent_dense: float,
-    clone_mask: wp.array(dtype=int),
-    num_points: int
-):
-    """Mark small Gaussians with high gradients for cloning."""
-    i = wp.tid()
-    if i >= num_points:
-        return
-    
-    # Check if gradient exceeds threshold
-    high_grad = grads[i] >= grad_threshold
-    
-    # Check if Gaussian is small (max scale <= threshold)
-    max_scale = wp.max(wp.max(scales[i][0], scales[i][1]), scales[i][2])
-    scale_threshold = percent_dense * scene_extent
-    small_gaussian = max_scale <= scale_threshold
-    
-    # Mark for cloning if both conditions are met
-    if (high_grad and small_gaussian):
-        clone_mask[i] = 1 
-    else:
-        clone_mask[i] = 0
-
-@wp.kernel
-def split_gaussians(
-    split_mask: wp.array(dtype=int),
-    prefix_sum: wp.array(dtype=int),
-    positions: wp.array(dtype=wp.vec3),
-    scales: wp.array(dtype=wp.vec3),
-    rotations: wp.array(dtype=wp.vec4),
-    opacities: wp.array(dtype=float),
-    shs: wp.array(dtype=wp.vec3),
-    N_split: int,
-    scale_factor: float,
-    offset: int,
-    out_positions: wp.array(dtype=wp.vec3),
-    out_scales: wp.array(dtype=wp.vec3),
-    out_rotations: wp.array(dtype=wp.vec4),
-    out_opacities: wp.array(dtype=float),
-    out_shs: wp.array(dtype=wp.vec3)
-):
-    """Split large Gaussians into multiple smaller ones."""
-    i = wp.tid()
-    
-    # Copy original Gaussians first
-    if i < len(positions):
-        out_positions[i] = positions[i]
-        out_scales[i] = scales[i]
-        out_rotations[i] = rotations[i]
-        out_opacities[i] = opacities[i]
-        
-        # Copy SH coefficients
-        for j in range(16):
-            out_shs[i * 16 + j] = shs[i * 16 + j]
-    
-    # Handle splits
-    if i >= len(positions):
-        return
-        
-    if split_mask[i] == 1:
-        # Find where to write new Gaussians
-        split_idx = prefix_sum[i]
-        
-        # Create N_split new Gaussians
-        for j in range(N_split):
-            new_idx = offset + split_idx * N_split + j
-            if new_idx < len(out_positions):
-                # Scale down the original Gaussian
-                scaled_scales = wp.vec3(
-                    scales[i][0] * scale_factor,
-                    scales[i][1] * scale_factor,
-                    scales[i][2] * scale_factor
-                )
-                
-                # Add small random offset for position
-                random_offset = wp.vec3(
-                    ((wp.randf(wp.uint32(new_idx * 3))) * 2.0 - 1.0) * 0.01,
-                    ((wp.randf(wp.uint32(new_idx * 3 + 1))) * 2.0 - 1.0) * 0.01,
-                    ((wp.randf(wp.uint32(new_idx * 3 + 2))) * 2.0 - 1.0) * 0.01
-                )
-                
-                out_positions[new_idx] = positions[i] + random_offset
-                out_scales[new_idx] = scaled_scales
-                out_rotations[new_idx] = rotations[i]
-                out_opacities[new_idx] = opacities[i]
-                
-                # Copy SH coefficients
-                for k in range(16):
-                    out_shs[new_idx * 16 + k] = shs[i * 16 + k]
-
-
-@wp.kernel
-def clone_gaussians(
-    clone_mask: wp.array(dtype=int),
-    prefix_sum: wp.array(dtype=int),
-    positions: wp.array(dtype=wp.vec3),
-    scales: wp.array(dtype=wp.vec3),
-    rotations: wp.array(dtype=wp.vec4),
-    opacities: wp.array(dtype=float),
-    shs: wp.array(dtype=wp.vec3),  # shape: [N * 16]
-
-    noise_scale: float,
-    offset: int,  # where to start writing new points
-    out_positions: wp.array(dtype=wp.vec3),
-    out_scales: wp.array(dtype=wp.vec3),
-    out_rotations: wp.array(dtype=wp.vec4),
-    out_opacities: wp.array(dtype=float),
-    out_shs: wp.array(dtype=wp.vec3),
-):
-    i = wp.tid()
-    if i >= offset:
-        return
-
-    # Copy original to out[i]
-    out_positions[i] = positions[i]
-    out_scales[i] = scales[i]
-    out_rotations[i] = rotations[i]
-    out_opacities[i] = opacities[i]
-    for j in range(16):
-        out_shs[i * 16 + j] = shs[i * 16 + j]
-
-    if clone_mask[i] == 1:
-        base_idx = prefix_sum[i] + offset
-        pos = positions[i]
-        scale = scales[i]
-        rot = rotations[i]
-        opac = opacities[i]
-
-
-        noise = wp.vec3(
-            wp.randf(wp.uint32(i * 3)) * noise_scale,
-            wp.randf(wp.uint32(i * 3 + 1)) * noise_scale,
-            wp.randf(wp.uint32(i * 3 + 2)) * noise_scale
-        )
-
-        out_positions[base_idx] = pos + noise
-        out_scales[base_idx] = scale
-        out_rotations[base_idx] = rot
-        out_opacities[base_idx] = opac
-
-        for j in range(16):
-            out_shs[base_idx * 16 + j] = shs[i * 16 + j]
-
-@wp.kernel
-def prune_gaussians(
-    opacities: wp.array(dtype=float),
-    opacity_threshold: float,
-    valid_mask: wp.array(dtype=int),
-    num_points: int
-):
-    i = wp.tid()
-    if i >= num_points:
-        return
-    # Mark Gaussians for keeping or removal
-    if opacities[i] > opacity_threshold:
-        valid_mask[i] = 1
-    else:
-        valid_mask[i] = 0
-
-@wp.kernel
-def compact_gaussians(
-    valid_mask: wp.array(dtype=int),
-    prefix_sum: wp.array(dtype=int),
-    positions: wp.array(dtype=wp.vec3),
-    scales: wp.array(dtype=wp.vec3),
-    rotations: wp.array(dtype=wp.vec4),
-    opacities: wp.array(dtype=float),
-    shs: wp.array(dtype=wp.vec3),  # shape: [N * 16]
-
-    out_positions: wp.array(dtype=wp.vec3),
-    out_scales: wp.array(dtype=wp.vec3),
-    out_rotations: wp.array(dtype=wp.vec4),
-    out_opacities: wp.array(dtype=float),
-    out_shs: wp.array(dtype=wp.vec3)
-):
-    i = wp.tid()
-    if valid_mask[i] == 0:
-        return
-
-    new_i = prefix_sum[i]
-
-    out_positions[new_i] = positions[i]
-    out_scales[new_i] = scales[i]
-    out_rotations[new_i] = rotations[i]
-    out_opacities[new_i] = opacities[i]
-
-    for j in range(16):
-        out_shs[new_i * 16 + j] = shs[i * 16 + j]
-

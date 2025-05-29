@@ -1,7 +1,3 @@
-"""
-Simple learning rate scheduler for 3D Gaussian Splatting.
-"""
-
 import math
 
 class LRScheduler:

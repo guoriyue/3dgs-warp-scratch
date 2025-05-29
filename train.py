@@ -8,11 +8,9 @@ from tqdm import tqdm
 from pathlib import Path
 import argparse
 
-# Import the renderer and constants
 from forward import render_gaussians
-from backward import (backward, prune_gaussians, adam_update, clone_gaussians, compact_gaussians,
-                     mark_split_candidates, mark_clone_candidates,
-                     split_gaussians, reset_opacities, reset_densification_stats)
+from backward import backward
+from optimizer import prune_gaussians, adam_update, clone_gaussians, compact_gaussians, mark_split_candidates, mark_clone_candidates, split_gaussians, reset_opacities, reset_densification_stats
 from config import *
 from utils.camera_utils import load_camera
 from utils.point_cloud_utils import save_ply
@@ -242,19 +240,6 @@ class NeRFGaussianSplattingTrainer:
         self.denom = wp.zeros(self.num_points, dtype=float, device=DEVICE)
         self.max_radii2D = wp.zeros(self.num_points, dtype=float, device=DEVICE)
 
-    def reset_densification_state(self):
-        """Reset densification state after parameter count changes."""
-        wp.launch(
-            reset_densification_stats,
-            dim=self.num_points,
-            inputs=[
-                self.xyz_gradient_accum,
-                self.denom,
-                self.max_radii2D,
-                self.num_points
-            ]
-        )
-
     def load_nerf_data(self, datasplit):
         """Load camera parameters and images from a NeRF dataset."""
         # Read transforms_train.json
@@ -340,8 +325,7 @@ class NeRFGaussianSplattingTrainer:
                 self.num_points
             ]
         )
-    
-    
+     
     def densification_and_pruning(self, iteration):
         """Perform sophisticated densification and pruning of Gaussians."""
         

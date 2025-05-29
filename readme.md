@@ -10,12 +10,11 @@ Thanks to Warp, the same kernel code runs seamlessly on both CPU and GPU — no 
 
 ### 🧠 Learn Modern Graphics the Easy Way
 
-Explore core concepts in differentiable rendering and parallel graphics programming — no need for expensive GPUs or thousands of lines of boilerplate.
+Explore differentiable rendering and parallel graphics through clean, readable Python — no pricey GPUs, complex toolchains, or heavy C++/CUDA boilerplate needed.
 
 ### 📦 Minimalist & Educational
 
-This isn’t another massive codebase. It’s a clean, hackable implementation built for clarity — perfect for study, prototyping, or teaching yourself how Gaussian Splatting works.
-
+This isn’t another massive codebase. It’s designed for clarity and experimentation. Strips away complexity so you can focus on understanding how Gaussian Splatting really works.
 
 ![The training video](examples/example_train_lego.gif)
 
@@ -62,16 +61,17 @@ python train.py
 ## Project Structure
 
 ```
+├── forward.py                # 3DGS: Forward pass (reimplementation of graphdeco-inria/gaussian-splatting)
+├── backward.py               # 3DGS: Backward pass (reimplementation of graphdeco-inria/gaussian-splatting)
 
 ├── train.py                  # Main training loop
 ├── render.py                 # Rendering script to validate outputs; confirms forward pass correctness
-
 ├── config.py                 # Configuration and training parameters
 
-├── forward.py                # 3DGS: Forward pass (reimplementation of graphdeco-inria/gaussian-splatting)
-├── backward.py               # 3DGS: Backward pass (reimplementation of graphdeco-inria/gaussian-splatting)
+
 ├── loss.py                   # Loss functions for training (includes depth loss, though unused in this repo)
 ├── scheduler.py              # Learning rate scheduler
+├── optimizer.py              # Adam optimizer and densify & prune logic
 
 ├── utils/
 │   ├── camera_utils.py       # Load camera intrinsics and extrinsics from training data
