@@ -2,6 +2,8 @@
 
 This project reimplements the core ideas of 3D Gaussian Splatting in a clean, minimalist Python codebase using NVIDIA Warp. It runs on both CPU and GPU with no CUDA setup, focuses on clarity and parallelism, and is designed as a practical entry point for learning modern graphics and differentiable rendering.
 
+[Read the walkthrough: from 3D Gaussians to a trainable image](docs/gaussian-splatting-from-scratch.md) · [Website version](https://guoriyue.github.io/blog/3dgs-warp-from-scratch/)
+
 ## Why This Implementation?
 
 ### ✅ CPU & GPU with Zero Hassle
